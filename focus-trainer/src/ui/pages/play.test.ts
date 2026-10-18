@@ -360,6 +360,9 @@ describe('renderPlay 的时钟契约', () => {
     expect(Math.max(...times)).toBeLessThan(1e9);
 
     const [record] = await h.repo.listSessions();
+    // 计划项必须全部来自注册表：换成 GAME_IDS 会把进不去的游戏写进 DayPlan.games，
+    // isPlanComplete 从此恒 false、streak 恒 0
+    expect(await h.repo.getPlan(EPOCH_DAY)).toMatchObject({ games: ['schulte'], completed: ['schulte'] });
     expect(record.startedAt).toBe(EPOCH);
     expect(record.dayKey).toBe(EPOCH_DAY);
     expect(record.durationMs).toBe(lastClick - begins[0]);
@@ -375,14 +378,15 @@ describe('renderPlay 的时钟契约', () => {
     await h.render();
     toRound(h, 1);
 
+    const start = h.beginTimes()[0];
     const s0 = h.snapshot();
     const index = s0.cells.findIndex((c) => c.label === s0.nextLabel);
-    h.clickCell(index, 1234.5);
-    expect(h.input.mock.calls.map((c) => c[0])).toEqual([{ kind: 'cell', index, t: 1234.5 }]);
+    // 时间戳必须晚于开轮帧，否则 trials[0].rt 为负（引擎不兜底）
+    h.clickCell(index, start + 1234.5);
+    expect(h.input.mock.calls.map((c) => c[0])).toEqual([{ kind: 'cell', index, t: start + 1234.5 }]);
     expect(h.snapshot().cells[index].done).toBe(true);
 
     // 其余格子在假时钟上继续点，最终用时恰好等于「最后一格 − 开轮帧」
-    const start = h.beginTimes()[0];
     let offset = 2000;
     let lastOffset = 0;
     for (let guard = 0; guard < 60 && !h.snapshot().done; guard++) {
@@ -396,6 +400,9 @@ describe('renderPlay 的时钟契约', () => {
     expect(s.cells.every((c) => c.done)).toBe(true);
     expect(s.errors).toBe(0);
     expect(s.elapsedMs).toBe(lastOffset);
+    // 每一枪的 rt 都必须非负：桩喂进早于开轮帧的时间戳时这一条立刻红
+    const trials = h.session().engine.result().trials;
+    expect(trials.every((t) => typeof t.rt === 'number' && t.rt >= 0)).toBe(true);
   });
 
   it('切到后台时作废当前轮，不扣分也不改档位', async () => {

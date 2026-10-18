@@ -3992,7 +3992,7 @@ export async function renderResult(
 
 1. **喂进 runner 的 `now` 只能来自 rAF 回调参数。** 桩里的 `requestAnimationFrame` 把回调收集成数组，测试自己按假时钟逐个 `frame(t)`；用 `vi.spyOn` 或注入的 runner 替身记录 `beginRound(now)` / `tick(now)` 的实参，断言实参序列**恰好等于**喂进去的帧时间戳，且 `vi.spyOn(Date, 'now')` 的返回值从不出现在这些实参里。
 2. **`InputEvent.t` 原样是 `PointerEvent.timeStamp`。** 派发一次 `pointerdown`（`timeStamp: 1234.5`），断言引擎收到的 `t` 就是这个数，格子按顺序完成、`elapsedMs` 只跟假时钟走。
-3. **`visibilitychange` 切到 hidden 必须作废当前轮。** 断言 `snapshot().voided === true`、页面出现「本轮已作废」文案、已计分轮数与档位不变。
+3. **`visibilitychange` 切到 hidden 必须作废当前轮。** 断言 `snapshot().phase === 'voided'`（`SessionSnapshot` 暴露的是 `phase`，取值见 `core/session.ts:5` 的 `SessionPhase`；没有 `voided` 布尔字段）、页面出现「本轮已作废」文案、已计分轮数与档位不变。注意 `voidCurrentRound()` 只在 `phase === 'playing'` 时才改成 `'voided'`（`session.ts:92`），所以这条用例必须先在假时钟上进入 playing 再派发事件。
 4. **`finish()` 一次训练只能调一次。** 走完整轮后 `repo.listSessions()` 长度 +1；再触发一次结束路径不得再多一条记录（Task 5 的一次性守卫会抛 `session already finished`）。
 5. **退出必须走确认框且不落库。** `confirm` 桩返回 false 时留在训练页、监听不摘；返回 true 时 `view.destroy()` 被调用、`repo.listSessions()` 不变。
 6. **`getGame(gameId)` 返回 `undefined` 时渲染「未实现」占位而不是崩。** M1 每天计划固定 3 项、注册表只有 1 项，这条分支每天都被真实踩到（Task 7 评审 M-6.2）。

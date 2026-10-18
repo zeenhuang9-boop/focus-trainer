@@ -511,8 +511,14 @@ Expected：`app-debug.apk` 存在且大小 > 3 MB（自用壳应用：Capacitor 
 | 日志里出现的原文（触发条件） | 根因 | 处置 |
 |---|---|---|
 | `Your project path contains non-ASCII characters` | `android.overridePathCheck=true` 没在 `android/gradle.properties` 生效 | 回 Task 4 Step 3 核对位置与拼写；这是唯一一次先修钉子再复跑的情况 |
-| `AAPT2 ... Daemon` + `error: failed processing` / `error: file not found` / `Unexpected error during link`，且消息里出现 `脑力训练` 或 `??????`/mojibake 形式的路径 | **中文路径兜底的触发器（spec §9 第二道对策）**：`aapt2` 在把非 ASCII 路径传给子进程或做资源链接时真炸了；`overridePathCheck` 只关掉 AGP 的静态检查、不修工具本身 | 走 Step 4 |
-| `CreateProcess error=206, The filename or extension is too long` | 同上（Windows 260 字符限制叠加中文目录） | 走 Step 4 |
+| `AAPT2 ... Daemon` + `error: failed processing` / `error: file not found` / `Unexpected error during link`，且消息里出现 `脑力训练` 或 `??????`/mojibake 形式的路径 | **先分辨「参数编码坏了」还是「工具真的读不了」**（见本 Step 下方的实测）。若 detail 里的路径已经被打成 `ÄÔÁ¦ѵÁ·` 这类 mojibake，那是**调用方把路径字符串转坏了**（常见于脚本用别的编码写出参数），修法是把参数按原始字节传下去，不是切 `subst`；只有确认参数编码正确、文件也确实存在，而 `aapt2` 仍然失败时，才走 Step 4 | — |
+| `CreateProcess error=206, The filename or extension is too long` | 这条**不是 `aapt2` 的失败形态**（控制器 2026-10-19 实测：中文根 + 311 字符的 `values/probe_strings.xml` 直接 `aapt2 compile` 成功）。它来自不带长路径支持的其它环节（zip/7z、某些 daemon 的启动命令行、`.bat` 包装）。命中时先按报错原文认定是哪个可执行文件，再决定 `subst` 是否能绕过 | 走 Step 4 |
+
+**中文路径实测结论（2026-10-19，本机 build-tools 36.1.0 的 `aapt2.exe`，用同一份 `<resources><string>` 直测）** —— 三条，按它们改判据而不是照猜：
+1. 路径里有 `脑力训练` **不是问题**：`E:\WORK\脑力训练\.superpowers\...\values\probe_strings.xml` 长到 **311 字符**仍能 `compile` 成功（exit 0，产物 366 字节）。所以 `subst` 兜底不是「中文路径必备」，它只在命中上表最后一行的**具体那条原文**时才用。
+2. **参数分隔符形态有意义**：同一个文件传 `E:/WORK/...`（正斜杠）会得到 `error: bad resource path`，传 `E:\WORK\...`（反斜杠）才成功。Node 侧用 `join()`/`execFileSync` 得到的就是反斜杠，正确；**不要用 `cygpath -u` 或手工把路径换成 `/` 再喂给 aapt2**。
+3. **文件真不存在时报 `error: file not found`，而参数字节被转坏时报 `error: invalid file path '<mojibake>'`**。两者处置完全不同，所以分流前先做一次自证：`ls` 那个文件确认存在，再用同一条命令原样复跑。上次探测就是第 3 条把一批 100–240 字符的正常路径全部误判成「太长失败」，实际是脚本自己的输出编码把路径转坏了。
+
 | `SDK location not found` | `local.properties` 转义写错 | 回 Task 4 Step 1 |
 | `Failed to install the following SDK components` / `You have not accepted the license agreements` | build-tools / platform 号与本机不符，或 `sdk.dir` 指错 | 核对 Task 4 Step 5 的 `buildToolsVersion = "36.1.0"` 与 `platforms/android-36`；许可已在 2026-10-18 接受过（8 份，见 `.superpowers/m4-sdk-phase2.log`），**不要**重新接受或重装 SDK |
 | `Unsupported class file major version` / `Gradle project JVM ... requires Java 17+` | Gradle 用错了 JDK | 按 Task 4 Step 4 的条件加 `org.gradle.java.home` |
@@ -1179,7 +1185,7 @@ cd "E:/WORK/脑力训练" && git add docs/superpowers/plans/2026-10-20-m4-accept
 ## 需要执行时才能发现的事（本文档不下结论）
 
 1. **生成工程里的真实版本四元组**：`android/variables.gradle` 与 `gradle/wrapper/gradle-wrapper.properties` 的实际数字（Task 3 Step 2/3 采集）。文档与 spec 的数字是预期值，不是事实。
-2. **中文路径是否真的会炸、在哪一步炸**：`android.overridePathCheck=true` 能挡 AGP 的静态检查，但 `aapt2` / 子进程路径解析的行为只有实际构建才知道（Task 5 Step 3 的表就是为此而写）。未命中触发行就绝不用 `subst`。
+2. **中文路径在哪一步炸、是否真的炸**：`android.overridePathCheck=true` 能挡 AGP 的静态检查；Task 5 Step 3 下方已给出对 `aapt2` 本体的实测（中文根 + 311 字符通过 / 正斜杠参数被拒 / mojibake 参数报 `invalid file path`），所以「`aapt2` 读不了中文路径」这一条**已经排除**，剩下的未知只有 AGP 的其它子进程（`d8`/`zipalign` 之外的工具、Gradle daemon 的命令行长度、`.bat` 包装层）。未命中触发行就绝不用 `subst`；命中了先按实测三条分辨清楚是编码问题还是长度问题，再决定切盘符。
 3. **`navigator.storage.persist()` 在真机 WebView 上的返回值**：必须实测（Task 8 Step 5）。M1 的实现只捕获 reject，未记录 `false`，所以「控制台没警告」不构成证据。
 4. **WebView 的实际 origin**（`http://localhost` 还是 `https://localhost`）：Capacitor 文档一处写 `http://localhost`，而 `server.androidScheme` 未显式设置；对 IndexedDB 命名目录有影响，故 `run-as` 那条命令要看实际目录名（Task 8 Step 5 路径 B）。
 5. **首次构建的真实下载量与耗时**：与网络与镜像状态有关（Task 5 Step 1 给的是量级，不是承诺）。

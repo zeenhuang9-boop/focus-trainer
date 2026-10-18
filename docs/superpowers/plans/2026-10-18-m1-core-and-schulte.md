@@ -461,6 +461,23 @@ describe('dayKey', () => {
   it('月和日补零', () => {
     expect(dayKey(at(2026, 3, 5, 12, 0))).toBe('2026-03-05');
   });
+
+  it('夏令时开始日仍按本地小时分界', () => {
+    const saved = process.env.TZ;
+    process.env.TZ = 'Europe/London';
+    try {
+      // 只在进程内改 TZ 真的生效时才断言，避免在不支持的平台上当然是绿的
+      const probe = new Date(2026, 2, 29, 12, 0);
+      if (probe.getTimezoneOffset() === -60) {
+        expect(dayKey(probe.getTime())).toBe('2026-03-29');
+        expect(dayKey(at(2026, 3, 29, 4, 0))).toBe('2026-03-29');
+        expect(dayKey(at(2026, 3, 29, 3, 30))).toBe('2026-03-28');
+      }
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
+  });
 });
 
 describe('addDays', () => {
@@ -535,8 +552,6 @@ Expected: FAIL，报错找不到 `./daykey` 与 `./adaptive`。
 `focus-trainer/src/core/daykey.ts`：
 
 ```ts
-const HOUR_MS = 3_600_000;
-
 function formatLocal(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -544,8 +559,12 @@ function formatLocal(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// 必须用本地小时判断：「epoch 减 dayStartHour 小时」在夏令时切换日与本地小时不等价，
+// 会把 04:00 的实例误判成前一天（Europe/London 2026-03-29 实测）。
 export function dayKey(epochMs: number, dayStartHour = 4): string {
-  return formatLocal(new Date(epochMs - dayStartHour * HOUR_MS));
+  const d = new Date(epochMs);
+  if (d.getHours() >= dayStartHour) return formatLocal(d);
+  return formatLocal(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 12));
 }
 
 export function addDays(key: string, delta: number): string {
@@ -591,7 +610,7 @@ export function step(state: AdaptiveState, outcome: Outcome, rule: StaircaseRule
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/core/daykey.test.ts src/core/adaptive.test.ts && npx tsc --noEmit
 ```
 
-Expected: 12 个测试 PASS；`tsc` 无输出。
+Expected: 13 个测试 PASS；`tsc` 无输出。
 
 - [ ] **Step 6: 提交**
 
@@ -3563,7 +3582,7 @@ export async function renderResult(
 cd "E:/WORK/脑力训练/focus-trainer" && npx tsc --noEmit && npx vitest run && npx vite build
 ```
 
-Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 111 个测试 PASS（Task 1 7 + Task 2 12 + Task 3 20 + Task 4 26 + Task 5 12 + Task 6 22 + Task 7 4 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
+Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 112 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 20 + Task 4 26 + Task 5 12 + Task 6 22 + Task 7 4 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
 
 - [ ] **Step 8: 提交**
 
@@ -3682,6 +3701,6 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src && git commit -m "fix(ui)
 | 3 自动升降档并续档 | Task 2 的 `step` + Task 4 的 `gameState` store + Task 10 Step 3/8 实测 |
 | 4 今日计划与打卡 | Task 3 的 `buildPlan`/`streak` + Task 8 的 `ensureTodayPlan`/`saveFinishedSession`；M1 注册表只有 1 个游戏，计划当天只有 1 项，M2 注册满 5 个后自然变成 3 项 |
 | 5 趋势页 | 不在 M1，属 M3（首页用 disabled 按钮占位） |
-| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 111 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
+| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 112 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
 
-M1 结束时应当满足：`npx tsc --noEmit` 干净、111 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。
+M1 结束时应当满足：`npx tsc --noEmit` 干净、112 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。

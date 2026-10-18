@@ -2112,7 +2112,7 @@ export function formatSchulteSummary(s: Record<string, number>): SummaryItem[] {
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/games/schulte/rules.test.ts
 ```
 
-Expected: 12 个测试 PASS。
+Expected: 13 个测试 PASS。
 
 - [ ] **Step 5: 写引擎的失败测试**
 
@@ -2474,7 +2474,7 @@ export class SchulteEngine implements GameEngine<SchulteSnapshot> {
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/games/schulte && npx tsc --noEmit
 ```
 
-Expected: 26 个测试 PASS（rules 12 + engine 14）；`tsc` 无输出。
+Expected: 26 个测试 PASS（rules 13 + engine 13）；`tsc` 无输出。
 
 - [ ] **Step 9: 提交**
 

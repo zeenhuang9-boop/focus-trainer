@@ -4078,6 +4078,30 @@ Expected：`durationMs` 落在几秒到几分钟之间（与 Step 3 实际耗时
 
 点「自由练」的舒尔特 → 开始 → 倒计时结束后点一个不是「下一个」的格子。Expected：该格子闪红（`.flash`，约 150ms 后恢复），信息行的「误点」变成 1，且已完成格子的变暗效果正常。
 
+再用 `evaluate_script` 把配色读成数字，别只靠肉眼扫截图（Task 6/7 评审把「干扰色是否真的可辨、完成态是否可辨」列为 diff 判不了的两项）：
+
+```js
+() => {
+  const cells = [...document.querySelectorAll('.schulte-cell')];
+  const rgb = (el) => getComputedStyle(el).backgroundColor;
+  return {
+    tints: [...new Set(cells.map(rgb))].sort(),
+    done: cells.filter((c) => c.classList.contains('done')).map(rgb),
+    label: getComputedStyle(cells[0]).color,
+    page: getComputedStyle(document.body).backgroundColor,
+  };
+}
+```
+
+Expected（控制器已离线按 WCAG 相对亮度与 CIE76 ΔE 算过，直接比对，不必重算）：
+
+| 项 | 实测值 | 判定线 |
+|---|---|---|
+| 字色 `#e8eaed` 对 4 种干扰底色 | 8.13 / 9.02 / 9.64 / 10.73 | ≥ 4.5（WCAG AA），全部通过 |
+| 字色对闪烁底色 `#b3261e` | 5.42 | ≥ 4.5，通过 |
+| 4 种干扰色两两 ΔE（含与默认底 `#22262d`） | 最小 11.0（蓝↔默认），最大 38.4（紫↔绿） | ΔE > 10 即一眼可辨，干扰有效；若实测两两 ΔE < 5，说明手机屏幕把 4 档压成了一片，记为 M3 配色问题 |
+| 完成格（`opacity: 0.2`）底色对页面背景 | 1.03–1.09 | **刻意如此**：完成格淡出背景、让未完成的目标突出。副作用是完成格自身数字只剩 1.59–1.69 对比度，几乎读不出——M1 按现状接受，回不回头做「完成态仍可读数」由 M3 打磨时裁定 |
+
 - [ ] **Step 6: 切后台作废当前轮**
 
 新一轮进行中时，用 `evaluate_script` 覆盖可见性并派发事件：

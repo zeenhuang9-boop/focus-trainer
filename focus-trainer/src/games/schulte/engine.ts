@@ -38,9 +38,9 @@ export class SchulteEngine implements GameEngine<SchulteSnapshot> {
   private flashUntil = 0;
   private trials: TrialRecord[] = [];
 
-  // GameEngine 的第三参数是轮号；舒尔特的题面与判定都不依赖它，但调用方（SessionRunner
-  // 与本仓的测试）按接口签名传三个实参，所以这里保留可选形参而不是省略。
-  configure(level: number, seed: number, roundNo?: number): void {
+  // 形参与 GameEngine.configure 逐字一致（必填轮号）。舒尔特的题面与判定都不依赖轮号，
+  // 它只是 SessionRunner 的记账字段。
+  configure(level: number, seed: number, roundNo: number): void {
     const lv = schulteLevel(level);
     const rng = createRng(seed);
     this.level = level;

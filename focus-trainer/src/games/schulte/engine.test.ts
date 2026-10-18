@@ -129,6 +129,9 @@ describe('SchulteEngine 作答', () => {
     for (let k = 1; k <= 9; k++) tap(eng, String(k), 200 + 100 * k);
     expect(eng.isDone()).toBe(true);
     eng.configure(2, 8, 2);
+    // start() 之前也必须读到 0：作废重开时 SessionRunner 只调 configure，不会先调 start。
+    // 少了下面这行，configure 忘记重置时间基准也能全绿（实现者实测：植入该变异后 22 条用例全过）。
+    expect(eng.snapshot().elapsedMs).toBe(0);
     eng.start(5000);
     const snap = eng.snapshot();
     expect(snap.done).toBe(false);

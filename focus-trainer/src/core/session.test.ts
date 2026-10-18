@@ -168,9 +168,10 @@ describe('SessionRunner', () => {
   });
 
   it('补轮配额是整次训练共享的，不是每个轮号各自 3 次', () => {
-    // spec 5.1「一次训练最多补 3 次」。若实现按轮号计数（评审变异 V19：计分后把 retriesUsed 归零），
-    // 第 5 轮无效会再补一轮而不是立即 hold —— seqmem/mot/gestalt 的轮数是 3/8/16，
-    // 每轮口径会把上限放大成 9/24/48 次，整场题面与时长失控而测试仍绿。
+    // spec 5.1「一次训练最多补 3 次」是整场训练的配额，不是每个轮号各自 3 次。
+    // 若实现按轮号计数（评审变异 V19：计分后把 retriesUsed 归零），本用例第 2 轮遇到无效会
+    // 再补一轮而不是立即 hold —— seqmem/mot/gestalt 的轮数是 3/8/16，每轮口径会把上限
+    // 放大成 9/24/48 次，整场题面与时长失控而测试仍绿。
     const { runner } = make({ roundsPerSession: 2 });
     for (let i = 0; i < MAX_RETRIES; i++) play(runner, INVALID, i * 1000);
     play(runner, PASS, 4000);

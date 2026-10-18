@@ -4031,7 +4031,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/styles.css focus-train
 - Produces: 验收结论（写进本任务 Step 9 的检查清单），以及必要时的修复提交。
 
 **约定：**
-- 本任务必须用 `browser-use:browser-use` 技能驱动浏览器，不允许只靠单元测试就宣称界面可用。
+- 本任务必须用 `browser-use:browser-use` 技能驱动浏览器，不允许只靠单元测试就宣称界面可用。**2026-10-19 控制器实测补充（两条通道硬事实，后续 M2/M3 的浏览器验收任务同样适用，别再试错）**：(a) `window.confirm()` 会把整条 CDP 通道阻塞 —— 真实点击「退出」弹出确认框后，`handle_dialog(accept|dismiss)`、`evaluate_script`、`press_key`、`navigate_page` 全部超时，所以 Step 7 的「取消 → 进度保留」必须有真人配合或改在能自动应答的通道上验；合成 `btn.click()` 走「确定」分支不受影响。(b) webview 被切到后台时 rAF 节流，帧驱动的状态机会把「用时」冻住、倒计时停格，此时输入被忽略是正确行为，但验收过程中不能把窗口切后台。逐格点击请用 `evaluate_script` 里 `dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))` 完成（MCP 逐格点击一次往返约 1 秒，3×3 的 8 秒目标必然超时，属通道限制而非产品问题），真实点击只用于「开始训练 / 开始 / 退出」这类导航按钮。
 - 后台进程按 AGENTS.md 第 28 条处理：启动前说明用途，记录端口 5173，验收结束后停掉。
 - 视口目标 390×844（iPhone 14 Pro 逻辑分辨率，接近常见安卓机）。**控制器已在 2026-10-18 实测过通道，别再试错**：这里的 browser-use 连的是 Qoder 内置 webview（不是用户的 Chrome），实测视口只有 531×557；`take_screenshot` 的参数只有 `format|quality|uid|fullPage|filePath`，**没有** viewport/设备参数；`window.open(url, name, 'width=390,height=844')` 被拦，而且会让后续 `evaluate_script` 报 `Inspected target navigated or closed`。**可行的办法是在顶层页面里挂一个同源 iframe**：`const f = document.createElement('iframe'); f.style.cssText='width:390px;height:844px;border:0;position:fixed;left:0;top:0'; f.src='/';` 实测 `contentWindow.innerWidth === 390 && innerHeight === 844`，同源可直接读 `contentDocument`。分工照此定：尺寸、配色、`getComputedStyle`、滚动这类**排版判据在 iframe 里量**；点击、导航、`take_snapshot` 的 uid 驱动**在顶层文档做**（快照覆盖不到 iframe 内部）。iframe 里的 `main.ts` 比 `onload` 事件慢，取 `#view` 内容要轮询到非空再断言。最后把顶层 `window.innerWidth` 的实际值一并记进结论，按实际尺寸与 390 排版下的实测 px 共同判触控目标是否达标。
 

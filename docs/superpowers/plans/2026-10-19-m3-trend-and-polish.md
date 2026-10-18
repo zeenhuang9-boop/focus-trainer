@@ -17,7 +17,7 @@
 - 允许出现在打包产物里的、长得像外部地址的字符串**只有一个**：SVG 命名空间 `http://www.w3.org/2000/svg`。M4 的 `assembleDebug` 后离线审计（`2026-10-20-m4-android-apk.md` Task 7）逐个资源扫 `https?://…`，allowlist 只认 `w3.org`；`localhost` / `127.0.0.1` / CDN / 字体 / 图标 URL 出现在源码里即 **hard constraint violation**，处理方式是删掉，不是往 allowlist 里加。
 - 测试文件与源码同目录，命名 `*.test.ts`；Vitest 环境 `node`（无 `document` / 无 CSS 引擎）。视图类测试照 `src/games/schulte/view.test.ts` 的**手写零依赖 DOM 桩**形状来；CSS 内容用 `import css from './styles.css?raw'` 取文本（`tsconfig.json` 已 `types: ["vite/client"]`，`?raw` 有现成类型声明，不需要新增依赖）。
 - `verbatimModuleSyntax`：类型只准 `import type { … }` 或 `import { type X }`。
-- 时钟契约（spec §4.3）：轮内计时只用 rAF 帧时间戳与 `PointerEvent.timeStamp`。趋势页**不在轮内**，只允许 `Date.now()` 用作「今天属于哪个 dayKey」的日期键入参（与 `today.ts:12` 的 `now = Date.now()` 默认参同形态），且必须以可注入参数写出（`now?: number`）以便测试。禁止给时钟加负值/NaN 钳制（M1 Task 5 裁定 N-5）。
+- 时钟契约（spec §4.3）：轮内计时只用 rAF 帧时间戳与 `PointerEvent.timeStamp`。趋势页**不在轮内**，只允许 `Date.now()` 用作「今天属于哪个 dayKey」的日期键入参（与 `today.ts:11` 的 `now = Date.now()` 默认参同形态），且必须以可注入参数写出（`now?: number`）以便测试。禁止给时钟加负值/NaN 钳制（M1 Task 5 裁定 N-5）。
 - 日界是**本地 04:00**（`src/core/daykey.ts`，`Settings.dayStartHour`，默认 4）。任何 30 天曲线、日历、近 3 次均值都必须按 `dayKey` 分桶，**不许**用 `toISOString().slice(0,10)` 或 UTC 日期。Task 3 用「凌晨 02:00 的单算前一天」的边界测试钉死这条。
 - 只读规则（M1 裁定的延续）：消费记录的页面不得改写记录。趋势页只准调 `listSessions()` / `listPlans()` / `getPlan()`（本页实际用到这三个只读方法；`lastSession()` / `listGameStates()` 同样是只读的，但趋势页不需要，用了就是多余）；**禁止** `saveSession` / `putPlan` / `putSettings` / `clearAll`，也**禁止**调用会写库的 `ensureTodayPlan()`（`today.ts:23` 有 `repo.putPlan`）。Task 1/6 的记录型 fake repo 比这条更严：除 `listSessions` / `listPlans` / `getPlan` / `getSettings` 外的方法（含只读的 `lastSession` / `listGameStates` / `getSession`）一被调用就记名并 reject，把「这一页只读了四个方法」钉成测试。
 - 能力指数只有一个来源：`src/core/scoring.ts` 的 `abilityIndex(rounds, maxLevel)`（最后 ⌈R/2⌉ 个 `counted` 轮的 `level-1+score01` 均值，夹 [0,100]），落库为 `SessionRecord.ability`。趋势页一律读 `ability` 字段，**不得**再写第二套 AI 公式。
@@ -36,6 +36,7 @@
 2. Task 1 起 `#/trend` 即已可用，后续任务只是往同一页面骨架里替换章节，**每一步都出可运行、可提交的 app**（不会出现「合了一半就打不开」）。
 3. M2 未合并也能跑完 Task 1–7：此时 `GAMES.length === 1`，雷达走「单轴降级」分支（Task 4/5 定义并断言）。Task 8 的浏览器验收要分别记录 M2 已合并 / 未合并两种情况。
 4. Task 8 之前先跑一次全量门禁：`cd "E:/WORK/脑力训练/focus-trainer" && npx tsc --noEmit && npx vitest run && npx vite build`。
+5. 与 M2 抢同一批文件：`src/ui/styles.css`（M2 的 seqmem / mot / gestalt 三份计划各有一处 `Modify`）、`src/games/registry.ts`、`src/ui/pages/home.ts`（M2 每合一个游戏就动一次底部入口与页签）。本计划在这三个文件里全部**按内容锚定**做小范围 Edit，不整文件重写、不引用行号；`styles.css` 的追加一律写在文件末尾。若 `git add` 时发现这三个文件带别人的改动（`git diff --cached` 里出现不属于本任务的 hunk），停下来先合并冲突再提交，绝不 `git add -A`。
 
 ## 文件结构（本计划全部改动面）
 
@@ -433,7 +434,7 @@ import { renderTrends } from './ui/pages/trends';
       return renderSettings(view, ctx, signal);
 ```
 
-`focus-trainer/src/ui/pages/home.ts:69` 的占位按钮换成真入口（`title` 属性一并删掉）：
+`focus-trainer/src/ui/pages/home.ts` 的占位按钮换成真入口。**按内容定位**那一行：当前在 `home.ts:69`，形如 `h('button', { disabled: true, title: '趋势页在 M3 提供' }, '趋势')`——M2 合并后行号会变，认 `disabled: true` 与 `title: '趋势页在 M3 提供'` 这两个特征，别数行号。替换后 `disabled` 与 `title` 两个属性一并消失：
 
 ```ts
       h('button', { onclick: () => navigate({ name: 'trend' }) }, '趋势'),
@@ -1898,7 +1899,7 @@ export async function renderTrends(
 
 - [ ] **Step 4: 加趋势页样式**
 
-先在 `focus-trainer/src/ui/styles.css` 的 `:root` 块里（第 10 行 `--tap: 48px;` **之前**）插入日历三色。必须放在 `:root`：图例 `.legend-done` 是 `<span>`、在 `svg` 外面，属性写在 `svg.chart` 上时它取不到，`var(--cal-done)` 会静默回退成继承色，图例三点全灰。`future` 不需要变量——它是 `fill: none` + 虚线框。
+先在 `focus-trainer/src/ui/styles.css` 的 `:root` 块里（**按内容定位**：找到 `--tap: 48px;` 这一行，插在它前面；M2 的三份计划也在往这个文件里加东西，别按行号数）插入日历三色。必须放在 `:root`：图例 `.legend-done` 是 `<span>`、在 `svg` 外面，属性写在 `svg.chart` 上时它取不到，`var(--cal-done)` 会静默回退成继承色，图例三点全灰。`future` 不需要变量——它是 `fill: none` + 虚线框。
 
 ```css
   --cal-done: #8ab4f8;

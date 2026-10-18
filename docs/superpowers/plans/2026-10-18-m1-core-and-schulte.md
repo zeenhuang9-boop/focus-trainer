@@ -4033,7 +4033,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/styles.css focus-train
 **约定：**
 - 本任务必须用 `browser-use:browser-use` 技能驱动浏览器，不允许只靠单元测试就宣称界面可用。
 - 后台进程按 AGENTS.md 第 28 条处理：启动前说明用途，记录端口 5173，验收结束后停掉。
-- 视口目标 390×844（iPhone 14 Pro 逻辑分辨率，接近常见安卓机）。调用前先 `mcp_get` 看清工具参数：若 `navigate_page` / `take_screenshot` 支持视口或设备参数，就显式设成 390×844；若不支持，用 `evaluate_script` 读取 `window.innerWidth`，在结论里如实记录实际宽度，并按实际尺寸判断触控目标是否达标。
+- 视口目标 390×844（iPhone 14 Pro 逻辑分辨率，接近常见安卓机）。**控制器已在 2026-10-18 实测过通道，别再试错**：这里的 browser-use 连的是 Qoder 内置 webview（不是用户的 Chrome），实测视口只有 531×557；`take_screenshot` 的参数只有 `format|quality|uid|fullPage|filePath`，**没有** viewport/设备参数；`window.open(url, name, 'width=390,height=844')` 被拦，而且会让后续 `evaluate_script` 报 `Inspected target navigated or closed`。**可行的办法是在顶层页面里挂一个同源 iframe**：`const f = document.createElement('iframe'); f.style.cssText='width:390px;height:844px;border:0;position:fixed;left:0;top:0'; f.src='/';` 实测 `contentWindow.innerWidth === 390 && innerHeight === 844`，同源可直接读 `contentDocument`。分工照此定：尺寸、配色、`getComputedStyle`、滚动这类**排版判据在 iframe 里量**；点击、导航、`take_snapshot` 的 uid 驱动**在顶层文档做**（快照覆盖不到 iframe 内部）。iframe 里的 `main.ts` 比 `onload` 事件慢，取 `#view` 内容要轮询到非空再断言。最后把顶层 `window.innerWidth` 的实际值一并记进结论，按实际尺寸与 390 排版下的实测 px 共同判触控目标是否达标。
 
 - [ ] **Step 1: 后台启动开发服务器**
 
@@ -4159,7 +4159,7 @@ Expected：浮层出现「本轮已作废，点击继续」。再把 `visibility
 cd "E:/WORK/脑力训练" && git add focus-trainer/src && git commit -m "fix(ui): <具体问题>"
 ```
 
-- 停掉 Step 1 启动的 dev server（用启动它的那个后台任务的终止接口，确认 5173 端口已释放：`netstat -ano | grep 5173` 无输出）。
+- 停掉 Step 1 启动的 dev server。**注意：终止那个后台命令的接口只杀外层 shell，vite 的 node 子进程会活着继续 LISTEN 5173**（控制器 2026-10-18 实测）。正确收尾三步：`netstat -ano | grep ":5173 "` 取 `LISTENING` 行的 PID → `powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=<pid>').CommandLine"` 确认它确实是本次起的 `vite.js --port 5173`（同一次探测里还会看到一个连过来的 Qoder 自身进程，**不要杀它**）→ `powershell -NoProfile -Command "Stop-Process -Id <pid> -Force"`。杀完再 `netstat -ano | grep ":5173 "`，判据是**没有 `LISTENING` 行**；Windows 会留下一批 `TIME_WAIT`（PID 0）且内置浏览器还会 `SYN_SENT` 重试，这是内核残留不是进程未退，把实际输出如实粘进验收结论即可。
 - 已知限制，验收时按现状接受、不要临时改：
   - 360px 宽的屏幕上 7×7 每格约 44.6px，低于 48px 触控目标；高档位手感问题留到 M3 打磨。
   - 安卓物理返回键中途离开训练页会丢弃本次训练且不弹确认，M4 用 Capacitor App 插件处理。

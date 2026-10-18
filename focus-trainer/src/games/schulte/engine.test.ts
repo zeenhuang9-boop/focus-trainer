@@ -65,6 +65,8 @@ describe('SchulteEngine 作答', () => {
     expect(r.trials[0]).toEqual({ onset: 1000, rt: 500, correct: true, label: '1', misses: 0 });
     expect(r.trials[8]).toEqual({ onset: 5000, rt: 500, correct: true, label: '9', misses: 0 });
     expect(judgeSchulte(r)).toEqual({ outcome: 'pass', score01: 1 });
+    r.trials[0].rt = -1; // result() 必须交出副本：写回不得污染引擎内部（T40）
+    expect(eng.result().trials[0].rt).toBe(500);
   });
 
   it('点错计误点并闪烁 150ms，下一次命中记下之前的误点数', () => {
@@ -150,7 +152,7 @@ describe('SchulteEngine 作答', () => {
     for (let k = 1; k <= 9; k++) tap(eng, String(k), 100 * k);
     const r1 = eng.result();
     expect(r1.trials).toHaveLength(9); // 钉住 trials = []：残留会让作废轮的试次累加进重开轮并落库
-    expect(r1.trials[0]).toEqual({ onset: 0, rt: 100, correct: true, label: '1', misses: 0 }); // 钉住 missesSinceHit = 0
+    expect(r1.trials[0]).toEqual({ onset: 0, rt: 100, correct: true, label: '1', misses: 0 }); // 上一轮以命中收尾，此处 missesSinceHit 本就是 0；configure 的重置由下方「轮中途作废」段守住
     expect(r1.metrics).toEqual({ timeMs: 900, errors: 0, cells: 9 });
     // 再开一档：level / seed / size / cells 都要跟着走（level 记错会让 judgeSchulte 拿 1 档的 T 判 7 档）
     eng.configure(2, 8, 2);
@@ -162,6 +164,17 @@ describe('SchulteEngine 作答', () => {
     expect([r2.level, r2.seed]).toEqual([2, 8]);
     expect(r2.trials).toHaveLength(16);
     expect(r2.metrics).toEqual({ timeMs: 1600, errors: 0, cells: 16 });
+    // 轮中途作废（切后台）：命中后误点、不完成轮 -> configure 时 missesSinceHit = 1
+    eng.configure(1, 100, 1);
+    eng.start(0);
+    tap(eng, '1', 100);
+    tap(eng, '3', 200);
+    expect(eng.isDone()).toBe(false);
+    eng.configure(1, 101, 1);
+    eng.start(0);
+    for (let k = 1; k <= 9; k++) tap(eng, String(k), 100 * k);
+    const r3 = eng.result();
+    expect(r3.trials[0]).toEqual({ onset: 0, rt: 100, correct: true, label: '1', misses: 0 });
   });
 
   it('结果用时锚在 endAt，结束后晚到的帧不改写已定局的用时', () => {

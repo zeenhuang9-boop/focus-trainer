@@ -199,4 +199,13 @@ describe('createSchulteView', () => {
     grid.fire('pointerdown', { target: grid.children[0], timeStamp: 1 });
     expect(inputs).toHaveLength(0);
   });
+
+  it('顶栏文案与格子文本跟着快照走（用时来自 snapshot.elapsedMs，不是墙上时钟）', () => {
+    const { host, grid } = mount(snap({ nextLabel: '7', elapsedMs: 4500, errors: 3 }));
+    const info = host.children[0].children[0]; // root > [info, grid]
+    expect(info.textContent).toContain('下一个 7');
+    expect(info.textContent).toContain('用时 4.5 秒');
+    expect(info.textContent).toContain('误点 3');
+    expect(grid.children.map((b) => b.textContent)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+  });
 });

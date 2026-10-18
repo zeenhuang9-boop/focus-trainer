@@ -1560,9 +1560,10 @@ describe('SessionRunner', () => {
   });
 
   it('补轮配额是整次训练共享的，不是每个轮号各自 3 次', () => {
-    // spec 5.1「一次训练最多补 3 次」。若实现按轮号计数（评审变异 V19：计分后把 retriesUsed 归零），
-    // 第 5 轮无效会再补一轮而不是立即 hold —— seqmem/mot/gestalt 的轮数是 3/8/16，
-    // 每轮口径会把上限放大成 9/24/48 次，整场题面与时长失控而测试仍绿。
+    // spec 5.1「一次训练最多补 3 次」是整场训练的配额，不是每个轮号各自 3 次。
+    // 若实现按轮号计数（评审变异 V19：计分后把 retriesUsed 归零），本用例第 2 轮遇到无效会
+    // 再补一轮而不是立即 hold —— seqmem/mot/gestalt 的轮数是 3/8/16，每轮口径会把上限
+    // 放大成 9/24/48 次，整场题面与时长失控而测试仍绿。
     const { runner } = make({ roundsPerSession: 2 });
     for (let i = 0; i < MAX_RETRIES; i++) play(runner, INVALID, i * 1000);
     play(runner, PASS, 4000);
@@ -1882,6 +1883,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/core/session.ts focus-tra
 - Produces（`rules.ts`）：`SchulteLevel`；`SCHULTE_LEVELS: readonly SchulteLevel[]`；`SCHULTE_MAX_LEVEL`（= 10）；`schulteLevel(level: number): SchulteLevel`（越界抛 `RangeError`）；`targetSequence(lv: SchulteLevel): string[]`；`judgeSchulte(r: RoundResult): { outcome: Outcome; score01: number }`；`summarizeSchulte(rounds: readonly RoundRecord[]): Record<string, number>`（键 `bestTimeMs`、`avgCellMs`、`errors`）；`formatSchulteSummary(s: Record<string, number>): SummaryItem[]`
 - Produces（`engine.ts`）：`TINTS`（= 4）；`FLASH_MS`（= 150）；`SchulteCell { label; done; tint: number | null }`；`SchulteSnapshot { size; cells; nextLabel: string | null; errors; elapsedMs; flashIndex: number | null; done }`；`class SchulteEngine implements GameEngine<SchulteSnapshot>`
 - 引擎的 `RoundResult.metrics` 固定为 `{ timeMs, errors, cells }`，`timingValid` 恒为 `true`（spec 第 6 节：舒尔特只测反应时，不做帧间隔判定）。
+- 只读契约：`judgeSchulte`、`summarizeSchulte`、`formatSchulteSummary` 一律不得原地改写入参（不 sort、不写回 `metrics`）。`SessionRunner.finish()` 把整场记录交给 `summarize`，结算页还会再读同一份记录。
 - 作废契约（spec 5.1）：`configure()` 必须把 `elapsedMs`、`errors`、已点对进度、`done`、`flashIndex` 全部重置。`GameEngine` 接口没有 abort/cancel，`SessionRunner.voidCurrentRound()` 也不会通知引擎 —— 作废轮的残留一旦渗进重开轮，「同档位新 seed 重开」的语义就静默失效。Step 里那条「重新 configure 会清空上一轮状态」的用例是本契约的唯一守卫，不得判成冗余而删掉。M2 的 seqmem/mot/gestalt 三个引擎必须遵守同一约定。
 
 - [ ] **Step 1: 写规则的失败测试**
@@ -1992,8 +1994,12 @@ describe('judgeSchulte（1 档 T = 8 秒）', () => {
 
 describe('summarizeSchulte 与 formatSchulteSummary', () => {
   it('只统计计分轮', () => {
-    const s = summarizeSchulte([rec(9000, 1, 9), rec(16000, 2, 16), rec(1000, 0, 9, false)]);
-    expect(s).toEqual({ bestTimeMs: 9000, avgCellMs: 1000, errors: 3 });
+    const input = [rec(9000, 1, 9), rec(16000, 2, 16), rec(1000, 0, 9, false)];
+    const before = structuredClone(input);
+    expect(summarizeSchulte(input)).toEqual({ bestTimeMs: 9000, avgCellMs: 1000, errors: 3 });
+    // 只读契约：SessionRunner 把整场记录交给 summarize，结算页也复用同一份记录。
+    // 原地排序或就地改写 metrics 会污染调用方的数据（评审 N-3 的真实风险面）。
+    expect(input).toEqual(before);
   });
 
   it('没有计分轮时三项都为 0', () => {
@@ -2946,6 +2952,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/dom.ts focus-trainer/s
 - 事件处理函数不写参数类型或写 `Event`：`h()` 的事件值类型是 `EventListener`，写成 `(e: MouseEvent) => …` 在 `strict` 下会报类型错误。
 - 时钟契约（Task 5 的 `durationMs` 无负值/NaN 兜底，全靠本页遵守）：`runner.beginRound(now)` 与 `runner.tick(now)` 的 `now` 只能取 `requestAnimationFrame` 回调参数；`InputEvent.t` 只能取 `PointerEvent.timeStamp`。这两者与 rAF 时间戳同源于 `performance.now()`，任何一处填 `Date.now()` 都会让 `durationMs` 变成 1.7e12 量级。`Date.now()` 只允许用于 `startedAt`、种子与日期键的入参。
 - `runner.finish()` 只能调用一次（Task 5 已加一次性守卫，第二次抛错）：`saveFinishedSession` 内部是唯一调用点，页面不得再自己调 `finish()` 取记录，要用的数据从返回的 `record` 里拿。
+- 结算页对 `record` 只读：不得 `record.rounds[i].trials.sort(...)`、不得就地改写 `metrics`（要排序先 `[...arr].sort()`）。展示用的换算（毫秒→秒）写进局部变量，不要回写 `record`。这条是 Task 5 深拷贝（N-3）在真实流程里唯一会变得可达的地方。
 - 本任务没有单元测试（页面依赖 DOM，Vitest 环境是 node）；验证方式是类型检查、全部单元测试回归、生产构建，实际操作在 Task 10 用浏览器验收。
 
 - [ ] **Step 1: 写基础样式**
@@ -3742,6 +3749,26 @@ cd "E:/WORK/脑力训练/focus-trainer" && npx vite --host 127.0.0.1 --port 5173
 - [ ] **Step 4: 刷新后数据仍在**
 
 `navigate_page` 重新加载 `http://127.0.0.1:5173/#/`。Expected：仍是 `1` 天、`✓`、`第 4 档`（证明写进了 IndexedDB 而不是内存）。
+
+再用 `evaluate_script` 读回刚保存的那条记录，核对 `durationMs` 的量级（这是 Task 5 时钟契约 N-5 的唯一实测点，runner 内不做负值/NaN 兜底）：
+
+```js
+async () => {
+  const db = await new Promise((res, rej) => {
+    const o = indexedDB.open('focus-trainer');
+    o.onsuccess = () => res(o.result);
+    o.onerror = () => rej(o.error);
+  });
+  const all = await new Promise((res, rej) => {
+    const rq = db.transaction('sessions').objectStore('sessions').getAll();
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+  return all.map((s) => ({ durationMs: s.durationMs, startedAt: s.startedAt, rounds: s.rounds.length }));
+}
+```
+
+Expected：`durationMs` 落在几秒到几分钟之间（与 Step 3 实际耗时同量级）。若出现 `1.7e12` 量级、负数或 `NaN`，说明某处把帧时间换成了 `Date.now()`，按 Step 9 用 `superpowers:systematic-debugging` 追根因（先查 `play.ts` 传给 `beginRound`/`tick` 的 `now` 与视图 `emit` 的 `t`）。
 
 - [ ] **Step 5: 误点反馈**
 

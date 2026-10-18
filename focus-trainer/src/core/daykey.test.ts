@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, dayKey } from './daykey';
 
+// 本仓未安装 @types/node（且约定不新增依赖），用最小环境声明补上 process 的类型；仅类型声明，运行期被擦除，仍用真实 Node process。
+declare const process: { env: { TZ?: string } };
+
 const at = (y: number, mo: number, d: number, h: number, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
 
 describe('dayKey', () => {
@@ -22,6 +25,23 @@ describe('dayKey', () => {
 
   it('月和日补零', () => {
     expect(dayKey(at(2026, 3, 5, 12, 0))).toBe('2026-03-05');
+  });
+
+  it('夏令时开始日仍按本地小时分界', () => {
+    const saved = process.env.TZ;
+    process.env.TZ = 'Europe/London';
+    try {
+      // 只在进程内改 TZ 真的生效时才断言，避免在不支持的平台上当然是绿的
+      const probe = new Date(2026, 2, 29, 12, 0);
+      if (probe.getTimezoneOffset() === -60) {
+        expect(dayKey(probe.getTime())).toBe('2026-03-29');
+        expect(dayKey(at(2026, 3, 29, 4, 0))).toBe('2026-03-29');
+        expect(dayKey(at(2026, 3, 29, 3, 30))).toBe('2026-03-28');
+      }
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
   });
 });
 

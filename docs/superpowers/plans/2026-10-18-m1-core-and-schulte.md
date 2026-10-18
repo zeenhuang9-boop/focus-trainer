@@ -1884,7 +1884,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/core/session.ts focus-tra
 - Produces（`engine.ts`）：`TINTS`（= 4）；`FLASH_MS`（= 150）；`SchulteCell { label; done; tint: number | null }`；`SchulteSnapshot { size; cells; nextLabel: string | null; errors; elapsedMs; flashIndex: number | null; done }`；`class SchulteEngine implements GameEngine<SchulteSnapshot>`
 - 引擎的 `RoundResult.metrics` 固定为 `{ timeMs, errors, cells }`，`timingValid` 恒为 `true`（spec 第 6 节：舒尔特只测反应时，不做帧间隔判定）。
 - 只读契约：`judgeSchulte`、`summarizeSchulte`、`formatSchulteSummary` 一律不得原地改写入参（不 sort、不写回 `metrics`）。`SessionRunner.finish()` 把整场记录交给 `summarize`，结算页还会再读同一份记录。
-- 作废契约（spec 5.1）：`configure()` 必须把 `elapsedMs`、`errors`、已点对进度、`done`、`flashIndex` 全部重置。`GameEngine` 接口没有 abort/cancel，`SessionRunner.voidCurrentRound()` 也不会通知引擎 —— 作废轮的残留一旦渗进重开轮，「同档位新 seed 重开」的语义就静默失效。Step 里那条「重新 configure 会清空上一轮状态」的用例是本契约的唯一守卫，不得判成冗余而删掉。M2 的 seqmem/mot/gestalt 三个引擎必须遵守同一约定。
+- 作废契约（spec 5.1）：`configure()` 必须把 `elapsedMs`（= `startAt`/`lastHitAt`/`now` 三个时间基准一起归零，且要体现在 `start()` 之前调 `snapshot()` 的读数里）、`errors`、已点对进度、`done`、`flashIndex` 全部重置。`GameEngine` 接口没有 abort/cancel，`SessionRunner.voidCurrentRound()` 也不会通知引擎 —— 作废轮的残留一旦渗进重开轮，「同档位新 seed 重开」的语义就静默失效。Step 里那条「重新 configure 会清空上一轮状态」的用例是本契约的唯一守卫，不得判成冗余而删掉。M2 的 seqmem/mot/gestalt 三个引擎必须遵守同一约定。
 
 - [ ] **Step 1: 写规则的失败测试**
 
@@ -2244,6 +2244,9 @@ describe('SchulteEngine 作答', () => {
     for (let k = 1; k <= 9; k++) tap(eng, String(k), 200 + 100 * k);
     expect(eng.isDone()).toBe(true);
     eng.configure(2, 8, 2);
+    // start() 之前也必须读到 0：作废重开时 SessionRunner 只调 configure，不会先调 start。
+    // 少了下面这行，configure 忘记重置时间基准也能全绿（实现者实测：植入该变异后 22 条用例全过）。
+    expect(eng.snapshot().elapsedMs).toBe(0);
     eng.start(5000);
     const snap = eng.snapshot();
     expect(snap.done).toBe(false);
@@ -2266,7 +2269,7 @@ Expected: FAIL，提示无法解析 `./engine`。
 
 - [ ] **Step 7: 写引擎**
 
-`focus-trainer/src/games/schulte/engine.ts`（`configure` 不需要轮号，按 TypeScript 规则可以省略接口里靠后的参数）：
+`focus-trainer/src/games/schulte/engine.ts`（签名与 `GameEngine` 逐字一致，含 `roundNo`：虽然 TypeScript 允许实现方省略接口靠后的参数，但本任务自己的 `engine.test.ts` 在具体类 `SchulteEngine` 上用三个实参调用，省略形参会直接 `TS2554 Expected 2 arguments, but got 3`。引擎不使用轮号 —— 轮号是 `SessionRunner` 记账用的，tsconfig 没开 `noUnusedParameters`，未使用不报错）：
 
 ```ts
 import { createRng, randInt, shuffle } from '../../core/rng';
@@ -2309,7 +2312,7 @@ export class SchulteEngine implements GameEngine<SchulteSnapshot> {
   private flashUntil = 0;
   private trials: TrialRecord[] = [];
 
-  configure(level: number, seed: number): void {
+  configure(level: number, seed: number, roundNo: number): void {
     const lv = schulteLevel(level);
     const rng = createRng(seed);
     this.level = level;
@@ -2327,6 +2330,11 @@ export class SchulteEngine implements GameEngine<SchulteSnapshot> {
     this.endAt = null;
     this.flashIndex = null;
     this.trials = [];
+    // 作废契约：SessionRunner.voidCurrentRound() 不通知引擎，重开轮只调 configure + start。
+    // 时间基准必须在这里一起归零，否则 start() 之前 snapshot().elapsedMs 会漏出上一轮的用时。
+    this.startAt = 0;
+    this.lastHitAt = 0;
+    this.now = 0;
   }
 
   start(now: number): void {

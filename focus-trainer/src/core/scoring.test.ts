@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { abilityIndex } from './scoring';
 import type { RoundRecord } from './types';
 
-const round = (level: number, score01: number, counted = true): RoundRecord => ({
+const round = (level: number, score01: number, counted = true, timingValid = true): RoundRecord => ({
   level,
   seed: 0,
   trials: [],
   metrics: {},
-  timingValid: counted,
+  timingValid,
   roundNo: 1,
   outcome: 'hold',
   score01,
@@ -33,9 +33,16 @@ describe('abilityIndex', () => {
     expect(abilityIndex([round(2, 0), round(10, 1, false), round(2, 0)], 10)).toBe(10);
   });
 
+  it('过滤只看 counted，不看 timingValid', () => {
+    // SessionRunner 会产出 counted:true + timingValid:false 的补满轮，必须计入
+    expect(abilityIndex([round(4, 0.5, true, false)], 10)).toBe(35);
+  });
+
   it('夹在 0 到 100', () => {
     expect(abilityIndex([round(10, 1)], 10)).toBe(100);
     expect(abilityIndex([round(1, 0)], 10)).toBe(0);
+    expect(abilityIndex([round(1, 500)], 10)).toBe(100);
+    expect(abilityIndex([round(1, -50)], 10)).toBe(0);
   });
 
   it('四舍五入到整数', () => {

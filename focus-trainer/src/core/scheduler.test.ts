@@ -18,6 +18,17 @@ describe('buildPlan', () => {
     expect(buildPlan('2026-10-18', all())).toEqual(plan('2026-10-18', ['schulte', 'stroop', 'seqmem']));
   });
 
+  it('日期与能力全相同时按 GAME_IDS 固定顺序，不按输入顺序', () => {
+    const tied = all({
+      schulte: st('schulte', '2026-10-18', 50),
+      stroop: st('stroop', '2026-10-18', 50),
+      seqmem: st('seqmem', '2026-10-18', 50),
+      mot: st('mot', '2026-10-18', 50),
+      gestalt: st('gestalt', '2026-10-18', 50),
+    }).reverse();
+    expect(buildPlan('2026-10-19', tied)).toEqual(plan('2026-10-19', ['schulte', 'stroop', 'seqmem']));
+  });
+
   it('次日：没练过的排最前，再按最近练习日期升序', () => {
     const standings = all({
       schulte: st('schulte', '2026-10-18', 40),

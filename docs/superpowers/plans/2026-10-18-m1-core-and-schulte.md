@@ -640,12 +640,12 @@ import { describe, expect, it } from 'vitest';
 import { abilityIndex } from './scoring';
 import type { RoundRecord } from './types';
 
-const round = (level: number, score01: number, counted = true): RoundRecord => ({
+const round = (level: number, score01: number, counted = true, timingValid = true): RoundRecord => ({
   level,
   seed: 0,
   trials: [],
   metrics: {},
-  timingValid: counted,
+  timingValid,
   roundNo: 1,
   outcome: 'hold',
   score01,
@@ -671,9 +671,16 @@ describe('abilityIndex', () => {
     expect(abilityIndex([round(2, 0), round(10, 1, false), round(2, 0)], 10)).toBe(10);
   });
 
+  it('过滤只看 counted，不看 timingValid', () => {
+    // SessionRunner 会产出 counted:true + timingValid:false 的补满轮，必须计入
+    expect(abilityIndex([round(4, 0.5, true, false)], 10)).toBe(35);
+  });
+
   it('夹在 0 到 100', () => {
     expect(abilityIndex([round(10, 1)], 10)).toBe(100);
     expect(abilityIndex([round(1, 0)], 10)).toBe(0);
+    expect(abilityIndex([round(1, 500)], 10)).toBe(100);
+    expect(abilityIndex([round(1, -50)], 10)).toBe(0);
   });
 
   it('四舍五入到整数', () => {
@@ -704,6 +711,17 @@ const plan = (dayKey: string, games: GameId[], completed: GameId[] = []): DayPla
 describe('buildPlan', () => {
   it('首日全都没练过：按固定顺序取前 3 个', () => {
     expect(buildPlan('2026-10-18', all())).toEqual(plan('2026-10-18', ['schulte', 'stroop', 'seqmem']));
+  });
+
+  it('日期与能力全相同时按 GAME_IDS 固定顺序，不按输入顺序', () => {
+    const tied = all({
+      schulte: st('schulte', '2026-10-18', 50),
+      stroop: st('stroop', '2026-10-18', 50),
+      seqmem: st('seqmem', '2026-10-18', 50),
+      mot: st('mot', '2026-10-18', 50),
+      gestalt: st('gestalt', '2026-10-18', 50),
+    }).reverse();
+    expect(buildPlan('2026-10-19', tied)).toEqual(plan('2026-10-19', ['schulte', 'stroop', 'seqmem']));
   });
 
   it('次日：没练过的排最前，再按最近练习日期升序', () => {
@@ -886,7 +904,7 @@ export function streak(plans: readonly DayPlan[], todayKey: string): number {
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/core/scoring.test.ts src/core/scheduler.test.ts && npx tsc --noEmit
 ```
 
-Expected: 20 个测试 PASS；`tsc` 无输出。
+Expected: 22 个测试 PASS；`tsc` 无输出。
 
 - [ ] **Step 5: 提交**
 
@@ -1029,6 +1047,25 @@ describe.each(impls)('$name repository', ({ make }) => {
     expect((await repo.getPlan('2026-10-18'))?.completed).toEqual([]);
   });
 
+  it('缺 key 的记录两种实现都拒绝且不落库', async () => {
+    const broken = { games: ['schulte'], completed: [] } as unknown as DayPlan;
+    await expect(repo.saveSession(rec('schulte', 100), state('schulte', 5), broken)).rejects.toThrow(TypeError);
+    expect(await repo.listSessions()).toEqual([]);
+    expect(await repo.getGameState('schulte')).toEqual(defaultGameState('schulte'));
+    await repo.saveSession(rec('schulte', 120), state('schulte', 5), null);
+    expect(await repo.listSessions()).toHaveLength(1);
+  });
+
+  it('写入后修改入参对象不影响库内数据', async () => {
+    const rec1 = rec('schulte', 100);
+    const st1 = state('schulte', 3);
+    await repo.saveSession(rec1, st1, dayPlan('2026-10-18'));
+    rec1.ability = 999;
+    st1.level = 9;
+    expect((await repo.lastSession('schulte'))?.ability).not.toBe(999);
+    expect((await repo.getGameState('schulte')).level).toBe(3);
+  });
+
   it('clearAll 清空全部数据', async () => {
     await repo.saveSession(rec('schulte', 100), state('schulte', 3), dayPlan('2026-10-18'));
     await repo.putSettings({ dayStartHour: 0 });
@@ -1043,7 +1080,9 @@ describe.each(impls)('$name repository', ({ make }) => {
 describe('openIdbRepository', () => {
   it('同一事务：计划写入失败时 session 和 gameState 都不落库', async () => {
     const repo = await openIdbRepository(uniqueDbName());
-    const broken = { games: ['schulte'], completed: [] } as unknown as DayPlan;
+    // 带函数值的记录能过 assertWriteKeys，但 IndexedDB 结构化克隆会同步抛 DataError，
+    // 用它专门验证 tx.abort() 这条回滚路径真的在承重。
+    const broken = { dayKey: '2026-10-18', games: ['schulte'], completed: [() => undefined] } as unknown as DayPlan;
     await expect(repo.saveSession(rec('schulte', 100), state('schulte', 5), broken)).rejects.toThrow();
     expect(await repo.listSessions()).toEqual([]);
     expect(await repo.getGameState('schulte')).toEqual(defaultGameState('schulte'));
@@ -1099,6 +1138,14 @@ export interface Repository {
 
 const byStartedAt = (a: SessionRecord, b: SessionRecord) => a.startedAt - b.startedAt;
 
+// 两种实现必须拒绝同一批坏数据：内存实现对缺 key 的记录会静默写进 undefined 键，
+// 真机 IndexedDB 会抛错并回滚，测试（跑内存实现）就会给出与设备相反的结论。
+function assertWriteKeys(rec: SessionRecord, state: GameState, plan: DayPlan | null): void {
+  if (typeof rec.gameId !== 'string' || typeof rec.dayKey !== 'string') throw new TypeError('session 缺 gameId 或 dayKey');
+  if (typeof state.gameId !== 'string') throw new TypeError('gameState 缺 gameId');
+  if (plan !== null && typeof plan.dayKey !== 'string') throw new TypeError('plan 缺 dayKey');
+}
+
 export class MemoryRepository implements Repository {
   private sessions: SessionRecord[] = [];
   private states = new Map<GameId, GameState>();
@@ -1150,6 +1197,7 @@ export class MemoryRepository implements Repository {
   }
 
   async saveSession(rec: SessionRecord, state: GameState, plan: DayPlan | null): Promise<number> {
+    assertWriteKeys(rec, state, plan);
     const id = this.nextId++;
     this.sessions.push({ ...structuredClone(rec), id });
     this.states.set(state.gameId, structuredClone(state));
@@ -1245,6 +1293,7 @@ class IdbRepository implements Repository {
   }
 
   async saveSession(rec: SessionRecord, state: GameState, plan: DayPlan | null): Promise<number> {
+    assertWriteKeys(rec, state, plan);
     const tx = this.db.transaction(['sessions', 'gameState', 'plans'], 'readwrite');
     const done = txDone(tx);
     // 自增主键：值为 undefined 的 id 属性会让 add 抛 DataError，必须去掉
@@ -1306,7 +1355,7 @@ export async function openIdbRepository(name = 'focus-trainer'): Promise<Reposit
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/core/storage.test.ts && npx tsc --noEmit
 ```
 
-Expected: 26 个测试 PASS（12 个契约测试 × 2 种实现 + 2 个 IndexedDB 专属测试）；`tsc` 无输出。
+Expected: 30 个测试 PASS（14 个契约测试 × 2 种实现 + 2 个 IndexedDB 专属测试）；`tsc` 无输出。
 
 - [ ] **Step 5: 提交**
 
@@ -3582,7 +3631,7 @@ export async function renderResult(
 cd "E:/WORK/脑力训练/focus-trainer" && npx tsc --noEmit && npx vitest run && npx vite build
 ```
 
-Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 112 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 20 + Task 4 26 + Task 5 12 + Task 6 22 + Task 7 4 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
+Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 118 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 12 + Task 6 22 + Task 7 4 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
 
 - [ ] **Step 8: 提交**
 
@@ -3701,6 +3750,6 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src && git commit -m "fix(ui)
 | 3 自动升降档并续档 | Task 2 的 `step` + Task 4 的 `gameState` store + Task 10 Step 3/8 实测 |
 | 4 今日计划与打卡 | Task 3 的 `buildPlan`/`streak` + Task 8 的 `ensureTodayPlan`/`saveFinishedSession`；M1 注册表只有 1 个游戏，计划当天只有 1 项，M2 注册满 5 个后自然变成 3 项 |
 | 5 趋势页 | 不在 M1，属 M3（首页用 disabled 按钮占位） |
-| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 112 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
+| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 118 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
 
-M1 结束时应当满足：`npx tsc --noEmit` 干净、112 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。
+M1 结束时应当满足：`npx tsc --noEmit` 干净、118 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。

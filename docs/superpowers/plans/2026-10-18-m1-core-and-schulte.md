@@ -2006,6 +2006,12 @@ describe('summarizeSchulte 与 formatSchulteSummary', () => {
     expect(summarizeSchulte([rec(1000, 0, 9, false)])).toEqual({ bestTimeMs: 0, avgCellMs: 0, errors: 0 });
   });
 
+  it('平均每格用时按四舍五入取整', () => {
+    // 原先三条用例全用整除输入，round 与 floor 同值，取整方向没人钉过（评审变异 T55）。
+    // 裁定：保留 Math.round（结算页显示的就是这个数），1001/2 = 500.5 → 501。
+    expect(summarizeSchulte([rec(1001, 0, 2)])).toEqual({ bestTimeMs: 1001, avgCellMs: 501, errors: 0 });
+  });
+
   it('转成带单位的中文文案', () => {
     expect(formatSchulteSummary({ bestTimeMs: 9040, avgCellMs: 1000, errors: 3 })).toEqual([
       { label: '最佳用时', value: '9.0 秒' },
@@ -2147,10 +2153,15 @@ describe('SchulteEngine 布局', () => {
       const lv = schulteLevel(level);
       expect(eng.snapshot().size).toBe(lv.size);
       expect([...labels(eng)].sort()).toEqual([...targetSequence(lv)].sort());
+      // 「排列」这个名字本身要钉住：长度 = size²、无重复格（原标题是同义反复，只比了集合相等）
+      expect(labels(eng)).toHaveLength(lv.size * lv.size);
+      expect(new Set(labels(eng)).size).toBe(labels(eng).length);
     }
   });
 
   it('干扰色档每格取 0–3 的底色，其他档没有底色', () => {
+    // spec:60 钉的是 4 种干扰色；`t < TINTS` 是自指断言，TINTS 改 5 也全绿（评审变异 T21）。
+    expect(TINTS).toBe(4);
     const tints = fresh(6).snapshot().cells.map((c) => c.tint);
     expect(tints.every((t) => t !== null && Number.isInteger(t) && t >= 0 && t < TINTS)).toBe(true);
     expect(fresh(1).snapshot().cells.every((c) => c.tint === null)).toBe(true);
@@ -2178,15 +2189,18 @@ describe('SchulteEngine 作答', () => {
   });
 
   it('点错计误点并闪烁 150ms，下一次命中记下之前的误点数', () => {
+    // spec 第 4 节钉的是 150 这个数值；边界必须写字面值 —— 用 `100 + FLASH_MS` 的话
+    // 常量被改成 151 也照样全绿（评审变异 T20 存活）。
+    expect(FLASH_MS).toBe(150);
     const eng = fresh(1);
     tap(eng, '2', 100);
     const snap = eng.snapshot();
     expect(snap.errors).toBe(1);
     expect(snap.nextLabel).toBe('1');
     expect(snap.flashIndex).toBe(indexOf(eng, '2'));
-    eng.tick(100 + FLASH_MS - 1);
+    eng.tick(249); // 100 + 150 - 1
     expect(eng.snapshot().flashIndex).toBe(indexOf(eng, '2'));
-    eng.tick(100 + FLASH_MS);
+    eng.tick(250); // 100 + 150
     expect(eng.snapshot().flashIndex).toBeNull();
     tap(eng, '1', 300);
     expect(eng.snapshot().nextLabel).toBe('2');
@@ -2240,21 +2254,71 @@ describe('SchulteEngine 作答', () => {
 
   it('重新 configure 会清空上一轮状态', () => {
     const eng = fresh(1);
-    tap(eng, '2', 100);
+    tap(eng, '2', 100); // 先制造误点与闪烁
     for (let k = 1; k <= 9; k++) tap(eng, String(k), 200 + 100 * k);
     expect(eng.isDone()).toBe(true);
-    eng.configure(2, 8, 2);
-    // start() 之前也必须读到 0：作废重开时 SessionRunner 只调 configure，不会先调 start。
-    // 少了下面这行，configure 忘记重置时间基准也能全绿（实现者实测：植入该变异后 22 条用例全过）。
+    // 作废重开：SessionRunner 只调 configure + start，不通知引擎（spec 5.1）
+    eng.configure(1, 99, 1);
+    // start() 之前也必须读到 0：少了这行，configure 忘记重置时间基准也能全绿。
     expect(eng.snapshot().elapsedMs).toBe(0);
-    eng.start(5000);
+    eng.start(0);
+    expect(eng.snapshot().errors).toBe(0);
+    expect(eng.snapshot().flashIndex).toBeNull();
+    // 越界索引必须被吞掉，不能抛 TypeError（视图侧 dataset 解析不出数字时就是这个形状）
+    eng.input({ kind: 'cell', index: 99, t: 50 });
+    eng.input({ kind: 'cell', index: -1, t: 60 });
+    expect(eng.snapshot().errors).toBe(0);
+    for (let k = 1; k <= 9; k++) tap(eng, String(k), 100 * k);
+    const r1 = eng.result();
+    expect(r1.trials).toHaveLength(9); // 钉住 trials = []：残留会让作废轮的试次累加进重开轮并落库
+    expect(r1.trials[0]).toEqual({ onset: 0, rt: 100, correct: true, label: '1', misses: 0 }); // 钉住 missesSinceHit = 0
+    expect(r1.metrics).toEqual({ timeMs: 900, errors: 0, cells: 9 });
+    // 再开一档：level / seed / size / cells 都要跟着走（level 记错会让 judgeSchulte 拿 1 档的 T 判 7 档）
+    eng.configure(2, 8, 2);
+    eng.start(0);
     const snap = eng.snapshot();
-    expect(snap.done).toBe(false);
-    expect(snap.errors).toBe(0);
-    expect(snap.size).toBe(4);
-    expect(snap.nextLabel).toBe('1');
-    expect(snap.flashIndex).toBeNull();
-    expect(snap.elapsedMs).toBe(0);
+    expect([snap.done, snap.size, snap.nextLabel, snap.elapsedMs]).toEqual([false, 4, '1', 0]);
+    for (let k = 1; k <= 16; k++) tap(eng, String(k), 100 * k);
+    const r2 = eng.result();
+    expect([r2.level, r2.seed]).toEqual([2, 8]);
+    expect(r2.trials).toHaveLength(16);
+    expect(r2.metrics).toEqual({ timeMs: 1600, errors: 0, cells: 16 });
+  });
+
+  it('结果用时锚在 endAt，结束后晚到的帧不改写已定局的用时', () => {
+    const eng = fresh(1, 7, 0);
+    for (let k = 1; k <= 8; k++) tap(eng, String(k), 100 * k);
+    tap(eng, '9', 4500);
+    expect(eng.isDone()).toBe(true);
+    eng.tick(9999);
+    expect(eng.snapshot().elapsedMs).toBe(4500);
+    expect(eng.result().metrics.timeMs).toBe(4500);
+  });
+
+  it('snapshot 交出的是副本；倒退的时间戳不会把用时往回拉', () => {
+    const eng = fresh(1, 7, 0);
+    tap(eng, '1', 100);
+    const idx = indexOf(eng, '1');
+    const s = eng.snapshot();
+    s.cells[idx].done = false; // 视图若拿到内部引用，这里就会污染引擎真实进度
+    expect(eng.snapshot().cells[idx].done).toBe(true);
+    expect(eng.snapshot().nextLabel).toBe('2');
+    eng.tick(5000);
+    eng.input({ kind: 'cell', index: indexOf(eng, '3'), t: 100 }); // 误点，事件时间戳比当前帧旧
+    expect(eng.snapshot().elapsedMs).toBe(5000);
+    eng.tick(500); // 晚到的旧帧同样不得把 now 拉回
+    expect(eng.snapshot().elapsedMs).toBe(5000);
+    expect(eng.snapshot().errors).toBe(1);
+  });
+
+  it('同一帧点完全部格子时 timeMs 为 0，判定按 spec 公式给出 pass / score01 = 1', () => {
+    // spec:61-62 未定义 t = 0 的处理，spec:361 又禁止舒尔特做帧间隔判定，引擎无权自行判废。
+    // 这条把行为钉成「已知且刻意」：T/0 = Infinity、Math.min(1, Infinity) = 1，不泄漏 NaN/Infinity。
+    // M3 若要防「多指同帧刷分」，改动点在判定公式，而不是临时给引擎加防御分支。
+    const eng = fresh(1, 5, 1000);
+    for (let k = 1; k <= 9; k++) tap(eng, String(k), 1000);
+    expect(eng.result().metrics.timeMs).toBe(0);
+    expect(judgeSchulte(eng.result())).toEqual({ outcome: 'pass', score01: 1 });
   });
 });
 ```
@@ -2410,7 +2474,7 @@ export class SchulteEngine implements GameEngine<SchulteSnapshot> {
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/games/schulte && npx tsc --noEmit
 ```
 
-Expected: 22 个测试 PASS（rules 12 + engine 10）；`tsc` 无输出。
+Expected: 26 个测试 PASS（rules 12 + engine 14）；`tsc` 无输出。
 
 - [ ] **Step 9: 提交**
 
@@ -2425,10 +2489,11 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/games/schulte/rules.ts fo
 - Create: `focus-trainer/src/games/schulte/index.ts`
 - Create: `focus-trainer/src/games/registry.ts`
 - Test: `focus-trainer/src/games/registry.test.ts`
+- Test: `focus-trainer/src/games/schulte/view.test.ts`
 
 **Interfaces:**
 - Consumes：`SchulteEngine`、`SchulteSnapshot`、`TINTS`（Task 6）；`SCHULTE_MAX_LEVEL`、`judgeSchulte`、`summarizeSchulte`、`formatSchulteSummary`（Task 6）；`GameModule`、`GameView`、`InputEvent`、`GAME_IDS`（Task 2）
-- Produces：`createSchulteView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<SchulteSnapshot>`
+- Produces：`createSchulteView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<SchulteSnapshot>`；`TINT_COLORS: readonly string[]`（长度必须等于 `TINTS`，导出只为让测试能钉住这条耦合）
 - Produces：`schulte: GameModule`（`src/games/schulte/index.ts`）
 - Produces：`GAMES: readonly GameModule[]`；`getGame(id: string): GameModule | undefined`（路由参数可能是任意字符串，未知 id 返回 `undefined`，由训练页处理）
 - 视图用到的 CSS 类名（样式在 Task 9 的 `styles.css` 里写）：`.schulte`、`.schulte-info`、`.schulte-grid`、`.schulte-cell`、`.schulte-cell.done`、`.schulte-cell.flash`；干扰色通过 CSS 变量 `--tint` 设在格子上。
@@ -2448,6 +2513,10 @@ describe('registry', () => {
   it('M1 只注册舒尔特方格，id 都在 GAME_IDS 里', () => {
     expect(GAMES.map((g) => g.id)).toEqual(['schulte']);
     expect(GAMES.every((g) => GAME_IDS.includes(g.id))).toBe(true);
+    // 保序子序列：scheduler.ts 的 tie-break 用 GAME_IDS.indexOf，首页与 M3 的雷达图按 GAMES 迭代。
+    // 现在注册表顺序无语义，M2 追加 4 个游戏时这条会强制「注册顺序 === 声明顺序」，
+    // 避免 UI 顺序隐性依赖注册表里的书写先后。
+    expect(GAMES.map((g) => g.id)).toEqual(GAME_IDS.filter((id) => GAMES.some((g) => g.id === id)));
   });
 
   it('按 id 查找，未实现或未知的 id 返回 undefined', () => {
@@ -2495,7 +2564,225 @@ cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/games/registry.tes
 
 Expected: FAIL，提示无法解析 `./registry`。
 
-- [ ] **Step 3: 写视图**
+- [ ] **Step 3: 写视图的失败测试（手写 DOM 桩）**
+
+`view.ts` 只有 55 行，但它是「emit 的事件必须带 `PointerEvent.timeStamp`」「闪烁与底色必须被清干净」「destroy 必须摘监听」这三条契约的唯一实现点。全局约束禁的是新增依赖，不是禁止测试 —— 手写一个只覆盖 `view.ts` 用到的 API 的最小桩即可（约 60 行，零依赖）。评审实测：不打桩时 `view.ts` 的 9 个变异全部存活。
+
+`focus-trainer/src/games/schulte/view.test.ts`：
+
+```ts
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { GameView, InputEvent } from '../../core/types';
+import { TINTS } from './engine';
+import type { SchulteSnapshot } from './engine';
+import { TINT_COLORS, createSchulteView } from './view';
+
+// node 环境没有 DOM，这里手写 view.ts 用到的那一小撮 API 的最小桩：createElement / append /
+// replaceChildren / add|removeEventListener / classList / style.setProperty / dataset /
+// textContent / remove / closest。目的不是模拟浏览器，而是让这 55 行代码在 CI 里有守卫；
+// 手感、布局与真实事件时间戳仍由 Task 10 的浏览器验收负责。
+class StubEl {
+  readonly children: StubEl[] = [];
+  readonly classes = new Set<string>();
+  readonly dataset: Record<string, string> = {};
+  readonly styleVars = new Map<string, string>();
+  readonly style = {
+    gridTemplateColumns: '',
+    setProperty: (k: string, v: string) => {
+      this.styleVars.set(k, v);
+    },
+    getPropertyValue: (k: string) => this.styleVars.get(k) ?? '',
+  };
+  textContent = '';
+  parent: StubEl | null = null;
+  removed = false;
+  private readonly handlers: Array<{ type: string; fn: (ev: unknown) => void }> = [];
+
+  constructor(readonly tag: string) {}
+
+  get classList(): { add(c: string): void; contains(c: string): boolean; toggle(c: string, on: boolean): boolean } {
+    const classes = this.classes;
+    return {
+      add: (c: string) => {
+        classes.add(c);
+      },
+      contains: (c: string) => classes.has(c),
+      toggle: (c: string, on: boolean) => {
+        if (on) classes.add(c);
+        else classes.delete(c);
+        return on;
+      },
+    };
+  }
+
+  set className(v: string) {
+    this.classes.clear();
+    for (const c of v.split(' ')) if (c) this.classes.add(c);
+  }
+
+  append(...els: StubEl[]): void {
+    for (const e of els) {
+      e.parent = this;
+      this.children.push(e);
+    }
+  }
+
+  replaceChildren(...els: StubEl[]): void {
+    this.children.length = 0;
+    this.append(...els);
+  }
+
+  remove(): void {
+    this.removed = true;
+    const p = this.parent;
+    if (p) p.children.splice(p.children.indexOf(this), 1);
+  }
+
+  addEventListener(type: string, fn: (ev: unknown) => void): void {
+    this.handlers.push({ type, fn });
+  }
+
+  removeEventListener(type: string, fn: (ev: unknown) => void): void {
+    const i = this.handlers.findIndex((h) => h.type === type && h.fn === fn);
+    if (i >= 0) this.handlers.splice(i, 1);
+  }
+
+  closest(selector: string): StubEl | null {
+    return selector === 'button[data-i]' && this.tag === 'button' && this.dataset.i !== undefined ? this : null;
+  }
+
+  fire(type: string, ev: Record<string, unknown>): { defaultPrevented: boolean } {
+    const state = { defaultPrevented: false };
+    for (const h of this.handlers.filter((x) => x.type === type)) {
+      h.fn({ ...ev, preventDefault: () => void (state.defaultPrevented = true) });
+    }
+    return state;
+  }
+
+  handlerCount(type: string): number {
+    return this.handlers.filter((h) => h.type === type).length;
+  }
+}
+
+class StubButton extends StubEl {}
+
+function installDom(): void {
+  vi.stubGlobal('Element', StubEl);
+  vi.stubGlobal('HTMLButtonElement', StubButton);
+  vi.stubGlobal('document', {
+    createElement: (tag: string) => (tag === 'button' ? new StubButton(tag) : new StubEl(tag)),
+  });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const cell = (label: string, done = false, tint: number | null = null) => ({ label, done, tint });
+
+const snap = (over: Partial<SchulteSnapshot> = {}): SchulteSnapshot => ({
+  size: 3,
+  cells: Array.from({ length: 9 }, (_, i) => cell(String(i + 1))),
+  nextLabel: '1',
+  errors: 0,
+  elapsedMs: 0,
+  flashIndex: null,
+  done: false,
+  ...over,
+});
+
+interface Mounted {
+  host: StubEl;
+  grid: StubEl;
+  inputs: InputEvent[];
+  view: GameView<SchulteSnapshot>;
+}
+
+// view.ts 的结构固定是 root > [info, grid]，grid 的直接子节点就是格子的 number of cells 个按钮
+function mount(s: SchulteSnapshot): Mounted {
+  installDom();
+  const host = new StubEl('div');
+  const inputs: InputEvent[] = [];
+  const view = createSchulteView(host as unknown as HTMLElement, (e) => inputs.push(e));
+  view.render(s);
+  const root = host.children[0];
+  return { host, grid: root.children[1], inputs, view };
+}
+
+describe('createSchulteView', () => {
+  it('pointerdown 命中格子时 emit 事件时间戳，并 preventDefault', () => {
+    const { grid, inputs } = mount(snap());
+    const state = grid.fire('pointerdown', { target: grid.children[4], timeStamp: 1234.5 });
+    // t 必须取 timeStamp（与 rAF 同域），不是 Date.now()：Task 5 的 durationMs 直接吃它
+    expect(inputs).toEqual([{ kind: 'cell', index: 4, t: 1234.5 }]);
+    expect(state.defaultPrevented).toBe(true);
+  });
+
+  it('命中容器自身（不是格子）时不 emit、也不 preventDefault', () => {
+    const { grid, inputs } = mount(snap());
+    const state = grid.fire('pointerdown', { target: grid, timeStamp: 10 });
+    expect(inputs).toEqual([]);
+    expect(state.defaultPrevented).toBe(false);
+  });
+
+  it('done 与 flash 跟着快照走；轮结束后不再残留闪烁', () => {
+    const cells = [cell('1', true), cell('2'), cell('3'), cell('4'), cell('5'), cell('6'), cell('7'), cell('8'), cell('9')];
+    const { grid, view } = mount(snap({ cells, flashIndex: 1 }));
+    const buttons = grid.children;
+    expect(buttons[0].classes.has('done')).toBe(true);
+    expect(buttons[1].classes.has('flash')).toBe(true);
+    expect(buttons[2].classes.has('flash')).toBe(false);
+    // 最后一格是误点后立刻完成：SessionRunner 停止喂帧，flashIndex 不会被 tick 清掉，
+    // 少了 !s.done 这一格会红到用户点「继续」为止（评审 M-4）。
+    view.render(snap({ cells, flashIndex: 1, done: true, nextLabel: null }));
+    expect(buttons[1].classes.has('flash')).toBe(false);
+  });
+
+  it('网格列数与格子数跟着 size 走', () => {
+    const { grid, view } = mount(snap());
+    expect(grid.style.gridTemplateColumns).toBe('repeat(3, 1fr)');
+    view.render(snap({ size: 5, cells: Array.from({ length: 25 }, (_, i) => cell(String(i + 1))) }));
+    expect(grid.style.gridTemplateColumns).toBe('repeat(5, 1fr)');
+    expect(grid.children).toHaveLength(25);
+  });
+
+  it('干扰色按下标写进 --tint，非干扰档不写，且调色板长度等于 TINTS', () => {
+    const tints = Array.from({ length: 9 }, (_, i) => cell(String(i + 1), false, i % 4));
+    const { grid } = mount(snap({ cells: tints }));
+    // engine.ts 用 randInt(rng, 0, TINTS - 1) 生成下标，这里按下标取色；两处各自硬编码时，
+    // TINTS 改 5 会让 TINT_COLORS[4] === undefined，setProperty 静默 no-op 而测试仍绿（评审 I-1）。
+    expect(TINT_COLORS.length).toBe(TINTS);
+    expect(grid.children[0].styleVars.get('--tint')).toBe(TINT_COLORS[0]);
+    expect(grid.children[5].styleVars.get('--tint')).toBe(TINT_COLORS[1]);
+    expect(mount(snap()).grid.children[0].styleVars.has('--tint')).toBe(false);
+  });
+
+  it('标签与底色都没变时复用节点，只有底色变化也重建；destroy 摘监听并移根', () => {
+    const a = Array.from({ length: 9 }, (_, i) => cell(String(i + 1), false, i % 4));
+    const { host, grid, inputs, view } = mount(snap({ cells: a }));
+    const first = grid.children[0];
+    view.render(snap({ cells: Array.from({ length: 9 }, (_, i) => cell(String(i + 1), false, i % 4)) }));
+    expect(grid.children[0]).toBe(first);
+    // 作废重开同档位 + 新 seed 可能撞出相同排列；键里不含 tint 就会跳过重建，底色残留（评审 M-5）。
+    view.render(snap({ cells: Array.from({ length: 9 }, (_, i) => cell(String(i + 1), false, (i + 1) % 4)) }));
+    expect(grid.children[0]).not.toBe(first);
+    view.destroy();
+    expect(host.children).toHaveLength(0);
+    expect(grid.handlerCount('pointerdown')).toBe(0);
+    grid.fire('pointerdown', { target: grid.children[0], timeStamp: 1 });
+    expect(inputs).toHaveLength(0);
+  });
+});
+```
+
+- [ ] **Step 4: 运行视图测试，确认失败**
+
+```bash
+cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/games/schulte/view.test.ts
+```
+
+Expected: FAIL，报错找不到 `./view`。
+- [ ] **Step 5: 写视图**
 
 `focus-trainer/src/games/schulte/view.ts`（输入取 `pointerdown` 的 `event.timeStamp`，与 rAF 时间戳同一时间基准；`preventDefault` 防止触屏上的兼容鼠标事件和长按菜单）：
 
@@ -2503,7 +2790,10 @@ Expected: FAIL，提示无法解析 `./registry`。
 import type { GameView, InputEvent } from '../../core/types';
 import type { SchulteSnapshot } from './engine';
 
-const TINT_COLORS = ['#2b3a4a', '#3a2b4a', '#2b4a3a', '#4a3a2b'];
+// 导出只为让 view.test.ts 能把「调色板长度 === TINTS」这条耦合钉住：engine.ts 用
+// randInt(rng, 0, TINTS - 1) 生成 tint 下标，这里按下标取色。两处各自硬编码时，任一方改动
+// 会让 setProperty('--tint', undefined) 静默 no-op —— 格子掉回默认底色，无类型错误、无异常、测试全绿。
+export const TINT_COLORS = ['#2b3a4a', '#3a2b4a', '#2b4a3a', '#4a3a2b'];
 
 export function createSchulteView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<SchulteSnapshot> {
   const root = document.createElement('div');
@@ -2528,7 +2818,9 @@ export function createSchulteView(host: HTMLElement, emit: (e: InputEvent) => vo
 
   return {
     render(s) {
-      const key = s.cells.map((c) => c.label).join(',');
+      // 键必须含 size 与 tint：作废重开是同档位 + 新 seed（session.ts 用 seed + attempt），
+      // 同档布局数有限，有一定概率撞出相同排列；只比标签会跳过重建，上一轮的 --tint 底色就残留下来。
+      const key = `${s.size}|${s.cells.map((c) => c.label).join(',')}|${s.cells.map((c) => c.tint ?? '').join(',')}`;
       if (key !== layoutKey) {
         layoutKey = key;
         grid.style.gridTemplateColumns = `repeat(${s.size}, 1fr)`;
@@ -2545,7 +2837,9 @@ export function createSchulteView(host: HTMLElement, emit: (e: InputEvent) => vo
       }
       s.cells.forEach((c, i) => {
         buttons[i].classList.toggle('done', c.done);
-        buttons[i].classList.toggle('flash', s.flashIndex === i);
+        // flashIndex 只由 tick 清除，而 SessionRunner 在 isDone() 后停止喂帧；
+        // 最后一格若是误点，那格会红到用户点「继续」为止（评审 M-4）。
+        buttons[i].classList.toggle('flash', s.flashIndex === i && !s.done);
       });
       info.textContent = `下一个 ${s.nextLabel ?? '—'}　用时 ${(s.elapsedMs / 1000).toFixed(1)} 秒　误点 ${s.errors}`;
     },
@@ -2557,7 +2851,7 @@ export function createSchulteView(host: HTMLElement, emit: (e: InputEvent) => vo
 }
 ```
 
-- [ ] **Step 4: 写游戏模块**
+- [ ] **Step 6: 写游戏模块**
 
 `focus-trainer/src/games/schulte/index.ts`：
 
@@ -2585,7 +2879,7 @@ export const schulte: GameModule = {
 };
 ```
 
-- [ ] **Step 5: 写注册表**
+- [ ] **Step 7: 写注册表**
 
 `focus-trainer/src/games/registry.ts`：
 
@@ -2600,15 +2894,15 @@ export function getGame(id: string): GameModule | undefined {
 }
 ```
 
-- [ ] **Step 6: 运行测试与类型检查，确认通过**
+- [ ] **Step 8: 运行测试与类型检查，确认通过**
 
 ```bash
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/games && npx tsc --noEmit
 ```
 
-Expected: 26 个测试 PASS（schulte 22 + registry 4）；`tsc` 无输出。视图的实际显示和点击在 Task 10 用浏览器验收。
+Expected: 36 个测试 PASS（schulte 26 + view 6 + registry 4）；`tsc` 无输出。视图的实际显示和点击在 Task 10 用浏览器验收。
 
-- [ ] **Step 7: 提交**
+- [ ] **Step 9: 提交**
 
 ```bash
 cd "E:/WORK/脑力训练" && git add focus-trainer/src/games/schulte/view.ts focus-trainer/src/games/schulte/index.ts focus-trainer/src/games/registry.ts focus-trainer/src/games/registry.test.ts && git commit -m "feat(schulte): add view, game module and registry"
@@ -3695,7 +3989,7 @@ export async function renderResult(
 cd "E:/WORK/脑力训练/focus-trainer" && npx tsc --noEmit && npx vitest run && npx vite build
 ```
 
-Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 119 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 13 + Task 6 22 + Task 7 4 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
+Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 129 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 13 + Task 6 26 + Task 7 10 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
 
 - [ ] **Step 8: 提交**
 
@@ -3834,6 +4128,6 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src && git commit -m "fix(ui)
 | 3 自动升降档并续档 | Task 2 的 `step` + Task 4 的 `gameState` store + Task 10 Step 3/8 实测 |
 | 4 今日计划与打卡 | Task 3 的 `buildPlan`/`streak` + Task 8 的 `ensureTodayPlan`/`saveFinishedSession`；M1 注册表只有 1 个游戏，计划当天只有 1 项，M2 注册满 5 个后自然变成 3 项 |
 | 5 趋势页 | 不在 M1，属 M3（首页用 disabled 按钮占位） |
-| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 119 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
+| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 129 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
 
-M1 结束时应当满足：`npx tsc --noEmit` 干净、119 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。
+M1 结束时应当满足：`npx tsc --noEmit` 干净、129 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。

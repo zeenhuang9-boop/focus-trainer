@@ -1382,6 +1382,8 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/core/storage.ts focus-tra
   - `voidCurrentRound()`：`playing` 时转 `voided`，当前轮不记录，不占补轮次数；`between` 时取消 `auto` 的自动衔接，改为等待点击。
   - `roundBreak === 'auto'`：轮结束后 600ms 由 `tick` 自动开下一轮；`'tap'`：等待调用方 `beginRound`。
   - `durationMs` = 最后一轮结束时刻 − 第一次 `beginRound` 时刻（帧时间轴）。
+  - `finish()` 只能成功调用一次：第二次一律抛 `session already finished`（写库方只应在第一次成功时落盘，防止重复记录污染趋势与打卡）。
+  - 时钟契约（实现内不做负值/NaN 兜底，靠调用方遵守）：`beginRound(now)` 与 `tick(now)` 必须传 `requestAnimationFrame` 回调的帧时间戳，`InputEvent.t` 必须传 `PointerEvent.timeStamp`；三者同源于 `performance.now()`，任何一处换成 `Date.now()` 都会让 `durationMs` 变成荒谬量级。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -1466,12 +1468,16 @@ function makeModule(overrides: Partial<GameModule>): GameModule {
     createView: () => {
       throw new Error('测试中不创建 view');
     },
+    // INVALID 必须显式映射成 pass：若与 HOLD 共用兜底的 hold，「补满配额后强制 hold」这条
+    // 分支的两种实现会产出完全相同的记录，测试就钉不住 spec 5.1（评审变异 V9 存活）。
     judge: (r) =>
       r.metrics.code === PASS
         ? { outcome: 'pass', score01: 1 }
         : r.metrics.code === FAIL
           ? { outcome: 'fail', score01: 0 }
-          : { outcome: 'hold', score01: 0.6 },
+          : r.metrics.code === INVALID
+            ? { outcome: 'pass', score01: 0.6 }
+            : { outcome: 'hold', score01: 0.6 },
     summarize: (rounds) => ({ counted: rounds.filter((r) => r.counted).length }),
     formatSummary: () => [],
     ...overrides,
@@ -1500,6 +1506,8 @@ describe('SessionRunner', () => {
     play(runner, FAIL, 2000);
     expect(runner.snapshot()).toMatchObject({ phase: 'finished', roundNo: 3, level: 2, lastOutcome: 'fail', lastLevelChange: -1 });
     expect(runner.isFinished()).toBe(true);
+    // finished 是 beginRound 的另一个禁止态（评审变异 V7：只拦 playing 也能全绿）
+    expect(() => runner.beginRound(3000)).toThrow();
   });
 
   it('每轮用当前档位、seed + attempt 与计分轮号 configure', () => {
@@ -1541,14 +1549,34 @@ describe('SessionRunner', () => {
     play(runner, PASS, 7000);
     const { record } = runner.finish('2026-10-18');
     expect(record.rounds.map((r) => [r.roundNo, r.counted, r.outcome])).toEqual([
-      [1, false, 'hold'],
-      [1, false, 'hold'],
-      [1, false, 'hold'],
+      [1, false, 'pass'],
+      [1, false, 'pass'],
+      [1, false, 'pass'],
       [1, true, 'hold'],
       [2, true, 'pass'],
       [3, true, 'pass'],
     ]);
     expect(record.rounds[3].score01).toBe(0.6);
+  });
+
+  it('补轮配额是整次训练共享的，不是每个轮号各自 3 次', () => {
+    // spec 5.1「一次训练最多补 3 次」。若实现按轮号计数（评审变异 V19：计分后把 retriesUsed 归零），
+    // 第 5 轮无效会再补一轮而不是立即 hold —— seqmem/mot/gestalt 的轮数是 3/8/16，
+    // 每轮口径会把上限放大成 9/24/48 次，整场题面与时长失控而测试仍绿。
+    const { runner } = make({ roundsPerSession: 2 });
+    for (let i = 0; i < MAX_RETRIES; i++) play(runner, INVALID, i * 1000);
+    play(runner, PASS, 4000);
+    expect(runner.snapshot()).toMatchObject({ phase: 'between', roundNo: 2, level: 2 });
+    play(runner, INVALID, 5000);
+    expect(runner.snapshot()).toMatchObject({ phase: 'finished', roundNo: 2, level: 2, lastOutcome: 'hold' });
+    const { record } = runner.finish('2026-10-18');
+    expect(record.rounds.map((r) => [r.roundNo, r.counted, r.outcome])).toEqual([
+      [1, false, 'pass'],
+      [1, false, 'pass'],
+      [1, false, 'pass'],
+      [1, true, 'pass'],
+      [2, true, 'hold'],
+    ]);
   });
 
   it('切后台作废当前轮：不记录、同轮号新 seed 重开、不占补轮次数', () => {
@@ -1574,6 +1602,8 @@ describe('SessionRunner', () => {
 
   it('auto 轮间：600ms 后由 tick 自动开下一轮', () => {
     const { runner, engine } = make({ roundBreak: 'auto' });
+    // 下面的用例用「相对常量」取时间点，常量本身必须钉住（评审变异 V8：600 改 1000 仍全绿）
+    expect(AUTO_BREAK_MS).toBe(600);
     play(runner, PASS, 0);
     expect(runner.snapshot()).toMatchObject({ phase: 'between', waitingForTap: false });
     runner.tick(100 + AUTO_BREAK_MS - 1);
@@ -1602,6 +1632,9 @@ describe('SessionRunner', () => {
     runner.tick(16);
     expect(runner.snapshot().phase).toBe('finished');
     expect(runner.finish('2026-10-18').record.durationMs).toBe(16);
+    // finish 一次性（评审 N-4）：重复调用会多写一行同 startedAt 的记录，
+    // 污染趋势页的「当天最高能力指数」与打卡判定，而 runner 是唯一能廉价拦住它的位置。
+    expect(() => runner.finish('2026-10-18')).toThrow();
   });
 
   it('finish 生成记录：起止档位、能力指数、时长与 lastPlayedDayKey', () => {
@@ -1692,6 +1725,7 @@ export class SessionRunner {
   private firstStartAt: number | null = null;
   private endAt = 0;
   private breakUntil: number | null = null;
+  private saved = false;
 
   constructor(
     private readonly module: GameModule,
@@ -1756,9 +1790,20 @@ export class SessionRunner {
   }
 
   finish(dayKey: string): { record: SessionRecord; state: GameState } {
+    if (this.saved) {
+      throw new Error('session already finished');
+    }
     if (this.phase !== 'finished' || this.firstStartAt === null) {
       throw new Error('session is not finished');
     }
+    // 必须深拷贝：{ ...r } 只拷顶层，trials/metrics 会与 runner 内部共享引用；
+    // 结算页一旦原地排序 trials 或就地换算 metrics.timeMs，就会同时改掉 runner 的状态。
+    // summarize 也拿这份副本，不给它内部数组本体。
+    const rounds = this.rounds.map((r) => ({
+      ...r,
+      trials: r.trials.map((t) => ({ ...t })),
+      metrics: { ...r.metrics },
+    }));
     const record: SessionRecord = {
       gameId: this.module.id,
       mode: this.mode,
@@ -1767,10 +1812,11 @@ export class SessionRunner {
       durationMs: Math.round(this.endAt - this.firstStartAt),
       startLevel: this.startLevel,
       endLevel: this.state.level,
-      rounds: this.rounds.map((r) => ({ ...r })),
-      summary: this.module.summarize(this.rounds),
-      ability: abilityIndex(this.rounds, this.module.maxLevel),
+      rounds,
+      summary: this.module.summarize(rounds),
+      ability: abilityIndex(rounds, this.module.maxLevel),
     };
+    this.saved = true;
     return { record, state: { ...this.state, lastPlayedDayKey: dayKey } };
   }
 
@@ -1815,7 +1861,7 @@ export class SessionRunner {
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/core/session.test.ts && npx tsc --noEmit
 ```
 
-Expected: 12 个测试 PASS；`tsc` 无输出。
+Expected: 13 个测试 PASS；`tsc` 无输出。
 
 - [ ] **Step 5: 提交**
 
@@ -1836,6 +1882,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/core/session.ts focus-tra
 - Produces（`rules.ts`）：`SchulteLevel`；`SCHULTE_LEVELS: readonly SchulteLevel[]`；`SCHULTE_MAX_LEVEL`（= 10）；`schulteLevel(level: number): SchulteLevel`（越界抛 `RangeError`）；`targetSequence(lv: SchulteLevel): string[]`；`judgeSchulte(r: RoundResult): { outcome: Outcome; score01: number }`；`summarizeSchulte(rounds: readonly RoundRecord[]): Record<string, number>`（键 `bestTimeMs`、`avgCellMs`、`errors`）；`formatSchulteSummary(s: Record<string, number>): SummaryItem[]`
 - Produces（`engine.ts`）：`TINTS`（= 4）；`FLASH_MS`（= 150）；`SchulteCell { label; done; tint: number | null }`；`SchulteSnapshot { size; cells; nextLabel: string | null; errors; elapsedMs; flashIndex: number | null; done }`；`class SchulteEngine implements GameEngine<SchulteSnapshot>`
 - 引擎的 `RoundResult.metrics` 固定为 `{ timeMs, errors, cells }`，`timingValid` 恒为 `true`（spec 第 6 节：舒尔特只测反应时，不做帧间隔判定）。
+- 作废契约（spec 5.1）：`configure()` 必须把 `elapsedMs`、`errors`、已点对进度、`done`、`flashIndex` 全部重置。`GameEngine` 接口没有 abort/cancel，`SessionRunner.voidCurrentRound()` 也不会通知引擎 —— 作废轮的残留一旦渗进重开轮，「同档位新 seed 重开」的语义就静默失效。Step 里那条「重新 configure 会清空上一轮状态」的用例是本契约的唯一守卫，不得判成冗余而删掉。M2 的 seqmem/mot/gestalt 三个引擎必须遵守同一约定。
 
 - [ ] **Step 1: 写规则的失败测试**
 
@@ -2897,6 +2944,8 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/dom.ts focus-trainer/s
   - `renderPlay(view: HTMLElement, ctx: AppContext, gameId: GameId, mode: Mode, signal: AbortSignal): Promise<void>`
   - `renderResult(view: HTMLElement, ctx: AppContext, sessionId: number, signal: AbortSignal): Promise<void>`
 - 事件处理函数不写参数类型或写 `Event`：`h()` 的事件值类型是 `EventListener`，写成 `(e: MouseEvent) => …` 在 `strict` 下会报类型错误。
+- 时钟契约（Task 5 的 `durationMs` 无负值/NaN 兜底，全靠本页遵守）：`runner.beginRound(now)` 与 `runner.tick(now)` 的 `now` 只能取 `requestAnimationFrame` 回调参数；`InputEvent.t` 只能取 `PointerEvent.timeStamp`。这两者与 rAF 时间戳同源于 `performance.now()`，任何一处填 `Date.now()` 都会让 `durationMs` 变成 1.7e12 量级。`Date.now()` 只允许用于 `startedAt`、种子与日期键的入参。
+- `runner.finish()` 只能调用一次（Task 5 已加一次性守卫，第二次抛错）：`saveFinishedSession` 内部是唯一调用点，页面不得再自己调 `finish()` 取记录，要用的数据从返回的 `record` 里拿。
 - 本任务没有单元测试（页面依赖 DOM，Vitest 环境是 node）；验证方式是类型检查、全部单元测试回归、生产构建，实际操作在 Task 10 用浏览器验收。
 
 - [ ] **Step 1: 写基础样式**
@@ -3631,7 +3680,7 @@ export async function renderResult(
 cd "E:/WORK/脑力训练/focus-trainer" && npx tsc --noEmit && npx vitest run && npx vite build
 ```
 
-Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 118 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 12 + Task 6 22 + Task 7 4 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
+Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 119 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 13 + Task 6 22 + Task 7 4 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
 
 - [ ] **Step 8: 提交**
 
@@ -3750,6 +3799,6 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src && git commit -m "fix(ui)
 | 3 自动升降档并续档 | Task 2 的 `step` + Task 4 的 `gameState` store + Task 10 Step 3/8 实测 |
 | 4 今日计划与打卡 | Task 3 的 `buildPlan`/`streak` + Task 8 的 `ensureTodayPlan`/`saveFinishedSession`；M1 注册表只有 1 个游戏，计划当天只有 1 项，M2 注册满 5 个后自然变成 3 项 |
 | 5 趋势页 | 不在 M1，属 M3（首页用 disabled 按钮占位） |
-| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 118 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
+| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 119 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
 
-M1 结束时应当满足：`npx tsc --noEmit` 干净、118 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。
+M1 结束时应当满足：`npx tsc --noEmit` 干净、119 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。

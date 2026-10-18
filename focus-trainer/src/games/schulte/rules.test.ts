@@ -113,6 +113,12 @@ describe('summarizeSchulte 与 formatSchulteSummary', () => {
     expect(summarizeSchulte([rec(1000, 0, 9, false)])).toEqual({ bestTimeMs: 0, avgCellMs: 0, errors: 0 });
   });
 
+  it('平均每格用时按四舍五入取整', () => {
+    // 原先三条用例全用整除输入，round 与 floor 同值，取整方向没人钉过（评审变异 T55）。
+    // 裁定：保留 Math.round（结算页显示的就是这个数），1001/2 = 500.5 → 501。
+    expect(summarizeSchulte([rec(1001, 0, 2)])).toEqual({ bestTimeMs: 1001, avgCellMs: 501, errors: 0 });
+  });
+
   it('转成带单位的中文文案', () => {
     expect(formatSchulteSummary({ bestTimeMs: 9040, avgCellMs: 1000, errors: 3 })).toEqual([
       { label: '最佳用时', value: '9.0 秒' },

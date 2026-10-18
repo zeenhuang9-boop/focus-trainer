@@ -7,6 +7,10 @@ describe('registry', () => {
   it('M1 只注册舒尔特方格，id 都在 GAME_IDS 里', () => {
     expect(GAMES.map((g) => g.id)).toEqual(['schulte']);
     expect(GAMES.every((g) => GAME_IDS.includes(g.id))).toBe(true);
+    // 保序子序列：scheduler.ts 的 tie-break 用 GAME_IDS.indexOf，首页与 M3 的雷达图按 GAMES 迭代。
+    // 现在注册表顺序无语义，M2 追加 4 个游戏时这条会强制「注册顺序 === 声明顺序」，
+    // 避免 UI 顺序隐性依赖注册表里的书写先后。
+    expect(GAMES.map((g) => g.id)).toEqual(GAME_IDS.filter((id) => GAMES.some((g) => g.id === id)));
   });
 
   it('按 id 查找，未实现或未知的 id 返回 undefined', () => {

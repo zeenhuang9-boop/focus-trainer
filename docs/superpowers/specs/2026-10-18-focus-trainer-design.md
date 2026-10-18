@@ -320,7 +320,7 @@ step(state, outcome, { upAfter, downAfter }, maxLevel):
 
 ### 5.4 日期键
 
-`dayKey(epochMs, dayStartHour = 4)`：先减去 dayStartHour 小时，再取本地日期 `YYYY-MM-DD`。凌晨 0:00–3:59 的训练算作前一天。
+`dayKey(epochMs, dayStartHour = 4)`：按本地墙上时钟小时判断，`getHours() < dayStartHour` 时取本地日期的前一天，否则取当天，格式 `YYYY-MM-DD`。凌晨 0:00–3:59 的训练算作前一天。（不用「epoch 减去 dayStartHour 小时」的写法：夏令时切换日两者不等价，会把切换日的 04:00 误判成前一天。）
 
 ### 5.5 今日计划
 

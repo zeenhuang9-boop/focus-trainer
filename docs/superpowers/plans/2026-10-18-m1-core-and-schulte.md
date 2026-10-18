@@ -3256,7 +3256,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/dom.ts focus-trainer/s
 - 时钟契约（Task 5 的 `durationMs` 无负值/NaN 兜底，全靠本页遵守）：`runner.beginRound(now)` 与 `runner.tick(now)` 的 `now` 只能取 `requestAnimationFrame` 回调参数；`InputEvent.t` 只能取 `PointerEvent.timeStamp`。这两者与 rAF 时间戳同源于 `performance.now()`，任何一处填 `Date.now()` 都会让 `durationMs` 变成 1.7e12 量级。`Date.now()` 只允许用于 `startedAt`、种子与日期键的入参。
 - `runner.finish()` 只能调用一次（Task 5 已加一次性守卫，第二次抛错）：`saveFinishedSession` 内部是唯一调用点，页面不得再自己调 `finish()` 取记录，要用的数据从返回的 `record` 里拿。
 - 结算页对 `record` 只读：不得 `record.rounds[i].trials.sort(...)`、不得就地改写 `metrics`（要排序先 `[...arr].sort()`）。展示用的换算（毫秒→秒）写进局部变量，不要回写 `record`。这条是 Task 5 深拷贝（N-3）在真实流程里唯一会变得可达的地方。
-- `getGame(id)` 对未知 id 返回 `undefined`（Task 7 契约）。今日计划是按已注册的游戏建的（本任务下面的 `ensureTodayPlan` / `saveFinishedSession` 调用点传的都是 `GAMES.map((g) => g.id)`），M1 只注册舒尔特，所以 `buildPlan` 的候选只有 1 个、当天的计划就是 `['schulte']`。**不要把这里改成 `GAME_IDS`**：那样 M1 的 `DayPlan.games` 会含 2 个进不去的游戏，`isPlanComplete` 永远为 false，`streak()` 在整个 M1 恒为 0，首页的「连续 N 天」会变成一句永远不应兑现的承诺。`undefined` 分支今天仍然可达，路径是手敲或粘贴 hash：`parseRoute` 校验的是 `GameId` 全集而不是注册表，`#/play/stroop/free` 会正常解析成一条 play 路由。训练页遇到 `undefined` 必须渲染「未实现」提示页而不是崩（`getGame(id)!.xxx` 一律禁止）；结果页的 `getGame(record.gameId)` 同样保留这层判空，M1 走不到那条分支，但 M2 回退档位或手工写记录时会用到。Task 10 验收里这条是「输入 `#/play/stroop/plan` 应看到提示页」一项。
+- `getGame(id)` 对未知 id 返回 `undefined`（Task 7 契约）。今日计划是按已注册的游戏建的（本任务下面的 `ensureTodayPlan` / `saveFinishedSession` 调用点传的都是 `GAMES.map((g) => g.id)`），M1 只注册舒尔特，所以 `buildPlan` 的候选只有 1 个、当天的计划就是 `['schulte']`。**不要把这里改成 `GAME_IDS`**：那样 M1 的 `DayPlan.games` 会含 2 个进不去的游戏，`isPlanComplete` 永远为 false，`streak()` 在整个 M1 恒为 0，首页的「连续 N 天」会变成一句永远不应兑现的承诺。`undefined` 分支今天仍然可达，路径是手敲或粘贴 hash：`parseRoute` 校验的是 `GameId` 全集而不是注册表，`#/play/stroop/free` 会正常解析成一条 play 路由。契约按本任务给出的代码形状为准：`play.ts` 与 `result.ts` 都在取到 `undefined` 时 `navigate({ name: 'home' }, true)` 提前返回，**不渲染任何专门文案**（首页与设置页只按 `GAMES` 迭代，本来就不会列出未注册的游戏）。不得写成 `getGame(id)!.xxx`。判空必须发生在 `repo.getGameState()` 之前 —— 这个顺序 Step 7 第 6 条用例要钉住。M2 注册满 5 个后这条分支只剩历史记录一种走法（结果页读旧记录时 `gameId` 已被移除），代码形状不变。
 - `engine` 与 `view` 的配对必须来自同一个 `GameModule`，且在同一处窄化：`GameModule.createView` 声明的是 `GameView<unknown>`（`types.ts:71`），`render` 是方法声明、参数按双变放行，所以 `strict` 抓不住「把 A 游戏的快照喂给 B 游戏的视图」。写法：`const mod = getGame(gameId); const eng = mod.createEngine() as GameEngine<...>`，`view.render(eng.snapshot())` 两个变量只能由这一处 `mod` 派生。Task 6/7 评审把这条列为 Task 9 入口约束（M-6.3），改 `types.ts` 泛型化不在 M1 范围内。
 - 本任务只有 `play.ts` 一条桩测（Step 7）：其余页面依赖 DOM 与真实交互，Vitest 环境是 node，验证方式是类型检查、全部单元测试回归、生产构建，实际操作在 Task 10 用浏览器验收。Step 7 不是可选加固 —— 它守的是 spec 4.3 的时钟基准，M1 里没有任何其他地方能测到。
 
@@ -3988,14 +3988,14 @@ export async function renderResult(
 
 - [ ] **Step 7: 给 `play.ts` 补桩测（时钟契约的唯一 CI 守卫）**
 
-`play.ts` 是全 App 唯一把帧时间戳喂给 `SessionRunner` 的地方。Task 5 裁定过 `durationMs` 不做负值/NaN 兜底（N-5：混基准属于集成期错误，加 `Math.max(0,…)` 只会把 1.7e12 量级变成静默错误），代价是这条契约今天只有 Task 10 的手工浏览器步骤在守。复用上一步 `view.test.ts` 已经证明可行的零依赖手写桩（扩展出 `requestAnimationFrame` / `cancelAnimationFrame` / `document.addEventListener` / 派发 `visibilitychange` / `window.confirm`），配 Task 4 就能在 node 里跑的 `MemoryRepository`，新建 `focus-trainer/src/ui/pages/play.test.ts`，逐条钉：
+`play.ts` 是全 App 唯一把帧时间戳喂给 `SessionRunner` 的地方。Task 5 裁定过 `durationMs` 不做负值/NaN 兜底（N-5：混基准属于集成期错误，加 `Math.max(0,…)` 只会把 1.7e12 量级变成静默错误），代价是这条契约今天只有 Task 10 的手工浏览器步骤在守。复用上一步 `view.test.ts` 已经证明可行的零依赖手写桩（在原有那撮 API 之外再加 `requestAnimationFrame` / `cancelAnimationFrame` / `document.addEventListener` / 派发 `visibilitychange` / `window.confirm` / `history.replaceState` / `window.dispatchEvent` / `HashChangeEvent`），配 Task 4 就能在 node 里跑的 `MemoryRepository`，新建 `focus-trainer/src/ui/pages/play.test.ts`，逐条钉：
 
 1. **喂进 runner 的 `now` 只能来自 rAF 回调参数。** 桩里的 `requestAnimationFrame` 把回调收集成数组，测试自己按假时钟逐个 `frame(t)`；用 `vi.spyOn` 或注入的 runner 替身记录 `beginRound(now)` / `tick(now)` 的实参，断言实参序列**恰好等于**喂进去的帧时间戳，且 `vi.spyOn(Date, 'now')` 的返回值从不出现在这些实参里。
 2. **`InputEvent.t` 原样是 `PointerEvent.timeStamp`。** 派发一次 `pointerdown`（`timeStamp: 1234.5`），断言引擎收到的 `t` 就是这个数，格子按顺序完成、`elapsedMs` 只跟假时钟走。
 3. **`visibilitychange` 切到 hidden 必须作废当前轮。** 断言 `snapshot().phase === 'voided'`（`SessionSnapshot` 暴露的是 `phase`，取值见 `core/session.ts:5` 的 `SessionPhase`；没有 `voided` 布尔字段）、页面出现「本轮已作废」文案、已计分轮数与档位不变。注意 `voidCurrentRound()` 只在 `phase === 'playing'` 时才改成 `'voided'`（`session.ts:92`），所以这条用例必须先在假时钟上进入 playing 再派发事件。
 4. **`finish()` 一次训练只能调一次。** 走完整轮后 `repo.listSessions()` 长度 +1；再触发一次结束路径不得再多一条记录（Task 5 的一次性守卫会抛 `session already finished`）。
 5. **退出必须走确认框且不落库。** `confirm` 桩返回 false 时留在训练页、监听不摘；返回 true 时 `view.destroy()` 被调用、`repo.listSessions()` 不变。
-6. **`getGame(gameId)` 返回 `undefined` 时渲染「未实现」提示页而不是崩。** 这条在 M1 的真实入口是手敲 hash（`parseRoute` 按 `GameId` 全集放行，不查注册表），不是每日计划 —— 计划由已注册游戏生成，见本任务 Interfaces 的对应条目。用例用 `#/play/stroop/plan` 这条路由驱动，断言页面出现「未实现」文案、没有异常抛出、能返回首页。
+6. **`getGame(gameId)` 返回 `undefined` 时提前返回首页，且判空发生在取状态之前。** 这条在 M1 的真实入口是手敲 hash（`parseRoute` 按 `GameId` 全集放行，不查注册表），不是每日计划 —— 计划由已注册游戏生成，见本任务 Interfaces 的对应条目。用例驱动 `renderPlay(view, ctx, 'stroop', 'plan', signal)`，断言三件事：桩的 `history.replaceState` 被以 `'#/'` 调过一次（`navigate(r, true)` 的实现是 `replaceState` + 手动派发 `hashchange`，见 Task 8 的 `router.ts`，所以不要断言 `location.hash` 赋值）、`vi.spyOn(ctx.repo, 'getGameState')` **没被调用过**（顺序钉子：先判空再读库，反过来会白读一次库并把 `undefined` 游戏名渲染出来）、`renderPlay` 返回的 Promise 正常 resolve 且没有抛错。不要在页面上找「未实现」文案 —— 按本任务给出的 `play.ts` 代码形状，M1 不渲染这种文案，断言它存在就是逼实现者改代码去迁就测试。
 
 ```bash
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/ui && npx tsc --noEmit
@@ -4149,7 +4149,7 @@ Expected：浮层出现「本轮已作废，点击继续」。再把 `visibility
 
 - [ ] **Step 9: 未注册游戏的路由**
 
-`navigate_page` 到 `http://127.0.0.1:5173/#/play/stroop/plan`。Expected：页面显示「未实现」提示（含游戏名或 id）与返回首页的入口，`list_console_messages` 里**没有** `error`。这是 Task 9 Step 7 第 6 条桩测的实测面 —— M1 的每日计划只含已注册游戏，`getGame()` 返回 `undefined` 的唯一真实入口就是手敲/粘贴 hash（`parseRoute` 按 `GameId` 全集放行，不查注册表），所以只能在这里验一次。
+`navigate_page` 到 `http://127.0.0.1:5173/#/play/stroop/plan`。Expected：地址立刻变成 `#/`（`replaceState`，历史里不多一项 —— 按一次「后退」应回到上一个页面而不是再停在 `#/play/stroop/plan`），页面渲染出首页，`list_console_messages` 里**没有** `error`。M1 不显示「未实现」这类文案，判空的结果就是静默回首页。这是 Task 9 Step 7 第 6 条桩测的实测面 —— M1 的每日计划只含已注册游戏，`getGame()` 返回 `undefined` 的唯一真实入口就是手敲/粘贴 hash（`parseRoute` 按 `GameId` 全集放行，不查注册表），所以只能在这里验一次。
 
 - [ ] **Step 10: 结论与收尾**
 

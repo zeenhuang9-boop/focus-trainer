@@ -33,6 +33,7 @@ export class SessionRunner {
   private firstStartAt: number | null = null;
   private endAt = 0;
   private breakUntil: number | null = null;
+  private saved = false;
 
   constructor(
     private readonly module: GameModule,
@@ -97,9 +98,20 @@ export class SessionRunner {
   }
 
   finish(dayKey: string): { record: SessionRecord; state: GameState } {
+    if (this.saved) {
+      throw new Error('session already finished');
+    }
     if (this.phase !== 'finished' || this.firstStartAt === null) {
       throw new Error('session is not finished');
     }
+    // 必须深拷贝：{ ...r } 只拷顶层，trials/metrics 会与 runner 内部共享引用；
+    // 结算页一旦原地排序 trials 或就地换算 metrics.timeMs，就会同时改掉 runner 的状态。
+    // summarize 也拿这份副本，不给它内部数组本体。
+    const rounds = this.rounds.map((r) => ({
+      ...r,
+      trials: r.trials.map((t) => ({ ...t })),
+      metrics: { ...r.metrics },
+    }));
     const record: SessionRecord = {
       gameId: this.module.id,
       mode: this.mode,
@@ -108,10 +120,11 @@ export class SessionRunner {
       durationMs: Math.round(this.endAt - this.firstStartAt),
       startLevel: this.startLevel,
       endLevel: this.state.level,
-      rounds: this.rounds.map((r) => ({ ...r })),
-      summary: this.module.summarize(this.rounds),
-      ability: abilityIndex(this.rounds, this.module.maxLevel),
+      rounds,
+      summary: this.module.summarize(rounds),
+      ability: abilityIndex(rounds, this.module.maxLevel),
     };
+    this.saved = true;
     return { record, state: { ...this.state, lastPlayedDayKey: dayKey } };
   }
 

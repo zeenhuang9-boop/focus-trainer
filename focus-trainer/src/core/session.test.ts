@@ -76,12 +76,16 @@ function makeModule(overrides: Partial<GameModule>): GameModule {
     createView: () => {
       throw new Error('测试中不创建 view');
     },
+    // INVALID 必须显式映射成 pass：若与 HOLD 共用兜底的 hold，「补满配额后强制 hold」这条
+    // 分支的两种实现会产出完全相同的记录，测试就钉不住 spec 5.1（评审变异 V9 存活）。
     judge: (r) =>
       r.metrics.code === PASS
         ? { outcome: 'pass', score01: 1 }
         : r.metrics.code === FAIL
           ? { outcome: 'fail', score01: 0 }
-          : { outcome: 'hold', score01: 0.6 },
+          : r.metrics.code === INVALID
+            ? { outcome: 'pass', score01: 0.6 }
+            : { outcome: 'hold', score01: 0.6 },
     summarize: (rounds) => ({ counted: rounds.filter((r) => r.counted).length }),
     formatSummary: () => [],
     ...overrides,
@@ -110,6 +114,8 @@ describe('SessionRunner', () => {
     play(runner, FAIL, 2000);
     expect(runner.snapshot()).toMatchObject({ phase: 'finished', roundNo: 3, level: 2, lastOutcome: 'fail', lastLevelChange: -1 });
     expect(runner.isFinished()).toBe(true);
+    // finished 是 beginRound 的另一个禁止态（评审变异 V7：只拦 playing 也能全绿）
+    expect(() => runner.beginRound(3000)).toThrow();
   });
 
   it('每轮用当前档位、seed + attempt 与计分轮号 configure', () => {
@@ -151,14 +157,34 @@ describe('SessionRunner', () => {
     play(runner, PASS, 7000);
     const { record } = runner.finish('2026-10-18');
     expect(record.rounds.map((r) => [r.roundNo, r.counted, r.outcome])).toEqual([
-      [1, false, 'hold'],
-      [1, false, 'hold'],
-      [1, false, 'hold'],
+      [1, false, 'pass'],
+      [1, false, 'pass'],
+      [1, false, 'pass'],
       [1, true, 'hold'],
       [2, true, 'pass'],
       [3, true, 'pass'],
     ]);
     expect(record.rounds[3].score01).toBe(0.6);
+  });
+
+  it('补轮配额是整次训练共享的，不是每个轮号各自 3 次', () => {
+    // spec 5.1「一次训练最多补 3 次」。若实现按轮号计数（评审变异 V19：计分后把 retriesUsed 归零），
+    // 第 5 轮无效会再补一轮而不是立即 hold —— seqmem/mot/gestalt 的轮数是 3/8/16，
+    // 每轮口径会把上限放大成 9/24/48 次，整场题面与时长失控而测试仍绿。
+    const { runner } = make({ roundsPerSession: 2 });
+    for (let i = 0; i < MAX_RETRIES; i++) play(runner, INVALID, i * 1000);
+    play(runner, PASS, 4000);
+    expect(runner.snapshot()).toMatchObject({ phase: 'between', roundNo: 2, level: 2 });
+    play(runner, INVALID, 5000);
+    expect(runner.snapshot()).toMatchObject({ phase: 'finished', roundNo: 2, level: 2, lastOutcome: 'hold' });
+    const { record } = runner.finish('2026-10-18');
+    expect(record.rounds.map((r) => [r.roundNo, r.counted, r.outcome])).toEqual([
+      [1, false, 'pass'],
+      [1, false, 'pass'],
+      [1, false, 'pass'],
+      [1, true, 'pass'],
+      [2, true, 'hold'],
+    ]);
   });
 
   it('切后台作废当前轮：不记录、同轮号新 seed 重开、不占补轮次数', () => {
@@ -184,6 +210,8 @@ describe('SessionRunner', () => {
 
   it('auto 轮间：600ms 后由 tick 自动开下一轮', () => {
     const { runner, engine } = make({ roundBreak: 'auto' });
+    // 下面的用例用「相对常量」取时间点，常量本身必须钉住（评审变异 V8：600 改 1000 仍全绿）
+    expect(AUTO_BREAK_MS).toBe(600);
     play(runner, PASS, 0);
     expect(runner.snapshot()).toMatchObject({ phase: 'between', waitingForTap: false });
     runner.tick(100 + AUTO_BREAK_MS - 1);
@@ -212,6 +240,9 @@ describe('SessionRunner', () => {
     runner.tick(16);
     expect(runner.snapshot().phase).toBe('finished');
     expect(runner.finish('2026-10-18').record.durationMs).toBe(16);
+    // finish 一次性（评审 N-4）：重复调用会多写一行同 startedAt 的记录，
+    // 污染趋势页的「当天最高能力指数」与打卡判定，而 runner 是唯一能廉价拦住它的位置。
+    expect(() => runner.finish('2026-10-18')).toThrow();
   });
 
   it('finish 生成记录：起止档位、能力指数、时长与 lastPlayedDayKey', () => {

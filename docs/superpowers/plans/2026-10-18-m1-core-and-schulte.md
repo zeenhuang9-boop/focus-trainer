@@ -2900,7 +2900,7 @@ export function getGame(id: string): GameModule | undefined {
 cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/games && npx tsc --noEmit
 ```
 
-Expected: 36 个测试 PASS（schulte 26 + view 6 + registry 4）；`tsc` 无输出。视图的实际显示和点击在 Task 10 用浏览器验收。
+Expected: 37 个测试 PASS（schulte 26 + view 7 + registry 4）；`tsc` 无输出。视图的实际显示和点击在 Task 10 用浏览器验收。
 
 - [ ] **Step 9: 提交**
 
@@ -4011,7 +4011,7 @@ Expected: 14 个测试 PASS（Task 8 的 router 3 + today 5，加这里 play 6�
 cd "E:/WORK/脑力训练/focus-trainer" && npx tsc --noEmit && npx vitest run && npx vite build
 ```
 
-Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 135 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 13 + Task 6 26 + Task 7 10 + Task 8 8 + Task 9 6）；`vite build` 打印 `dist/` 产物且没有报错。
+Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 136 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 13 + Task 6 26 + Task 7 11 + Task 8 8 + Task 9 6）；`vite build` 打印 `dist/` 产物且没有报错。
 
 - [ ] **Step 9: 提交**
 
@@ -4178,6 +4178,6 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src && git commit -m "fix(ui)
 | 3 自动升降档并续档 | Task 2 的 `step` + Task 4 的 `gameState` store + Task 10 Step 3/8 实测 |
 | 4 今日计划与打卡 | Task 3 的 `buildPlan`/`streak` + Task 8 的 `ensureTodayPlan`/`saveFinishedSession`；M1 注册表只有 1 个游戏，计划当天只有 1 项，M2 注册满 5 个后自然变成 3 项 |
 | 5 趋势页 | 不在 M1，属 M3（首页用 disabled 按钮占位） |
-| 6 纯逻辑单测 + 帧时间实测 | Task 1–9 共 135 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6，`play.ts` 的基准由 Task 9 Step 7 的桩测钉住） |
+| 6 纯逻辑单测 + 帧时间实测 | Task 1–9 共 136 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6，`play.ts` 的基准由 Task 9 Step 7 的桩测钉住） |
 
-M1 结束时应当满足：`npx tsc --noEmit` 干净、135 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–9 在手机尺寸浏览器里全部通过。
+M1 结束时应当满足：`npx tsc --noEmit` 干净、136 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–9 在手机尺寸浏览器里全部通过。

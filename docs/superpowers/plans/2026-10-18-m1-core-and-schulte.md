@@ -3242,6 +3242,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/dom.ts focus-trainer/s
 - Create: `focus-trainer/src/ui/pages/settings.ts`
 - Create: `focus-trainer/src/ui/pages/play.ts`
 - Create: `focus-trainer/src/ui/pages/result.ts`
+- Test: `focus-trainer/src/ui/pages/play.test.ts`
 - Modify: `focus-trainer/src/main.ts`（整体替换 Task 1 的占位内容）
 
 **Interfaces:**
@@ -3257,7 +3258,7 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/dom.ts focus-trainer/s
 - 结算页对 `record` 只读：不得 `record.rounds[i].trials.sort(...)`、不得就地改写 `metrics`（要排序先 `[...arr].sort()`）。展示用的换算（毫秒→秒）写进局部变量，不要回写 `record`。这条是 Task 5 深拷贝（N-3）在真实流程里唯一会变得可达的地方。
 - `getGame(id)` 对未知 id 返回 `undefined`（Task 7 契约）：**M1 只注册舒尔特 1 个游戏，而今日计划固定取 3 项**，所以首页与训练页在 M1 每天都会遇到 2 个 `undefined`。二者都必须渲染「未实现」占位（禁用按钮 / 提示页）并在 `undefined` 之前完成 `gameId` 取值，不得 `getGame(id)!.xxx`。M2 注册满 5 个后该分支自然消失，但代码路径今天就要跑通 —— 训练页拿到 `undefined` 时崩掉，Task 10 的首页验收会当场踩到。
 - `engine` 与 `view` 的配对必须来自同一个 `GameModule`，且在同一处窄化：`GameModule.createView` 声明的是 `GameView<unknown>`（`types.ts:71`），`render` 是方法声明、参数按双变放行，所以 `strict` 抓不住「把 A 游戏的快照喂给 B 游戏的视图」。写法：`const mod = getGame(gameId); const eng = mod.createEngine() as GameEngine<...>`，`view.render(eng.snapshot())` 两个变量只能由这一处 `mod` 派生。Task 6/7 评审把这条列为 Task 9 入口约束（M-6.3），改 `types.ts` 泛型化不在 M1 范围内。
-- 本任务没有单元测试（页面依赖 DOM，Vitest 环境是 node）；验证方式是类型检查、全部单元测试回归、生产构建，实际操作在 Task 10 用浏览器验收。
+- 本任务只有 `play.ts` 一条桩测（Step 7）：其余页面依赖 DOM 与真实交互，Vitest 环境是 node，验证方式是类型检查、全部单元测试回归、生产构建，实际操作在 Task 10 用浏览器验收。Step 7 不是可选加固 —— 它守的是 spec 4.3 的时钟基准，M1 里没有任何其他地方能测到。
 
 - [ ] **Step 1: 写基础样式**
 
@@ -3985,15 +3986,34 @@ export async function renderResult(
 }
 ```
 
-- [ ] **Step 7: 类型检查、全量回归与构建**
+- [ ] **Step 7: 给 `play.ts` 补桩测（时钟契约的唯一 CI 守卫）**
+
+`play.ts` 是全 App 唯一把帧时间戳喂给 `SessionRunner` 的地方。Task 5 裁定过 `durationMs` 不做负值/NaN 兜底（N-5：混基准属于集成期错误，加 `Math.max(0,…)` 只会把 1.7e12 量级变成静默错误），代价是这条契约今天只有 Task 10 的手工浏览器步骤在守。复用上一步 `view.test.ts` 已经证明可行的零依赖手写桩（扩展出 `requestAnimationFrame` / `cancelAnimationFrame` / `document.addEventListener` / 派发 `visibilitychange` / `window.confirm`），配 Task 4 就能在 node 里跑的 `MemoryRepository`，新建 `focus-trainer/src/ui/pages/play.test.ts`，逐条钉：
+
+1. **喂进 runner 的 `now` 只能来自 rAF 回调参数。** 桩里的 `requestAnimationFrame` 把回调收集成数组，测试自己按假时钟逐个 `frame(t)`；用 `vi.spyOn` 或注入的 runner 替身记录 `beginRound(now)` / `tick(now)` 的实参，断言实参序列**恰好等于**喂进去的帧时间戳，且 `vi.spyOn(Date, 'now')` 的返回值从不出现在这些实参里。
+2. **`InputEvent.t` 原样是 `PointerEvent.timeStamp`。** 派发一次 `pointerdown`（`timeStamp: 1234.5`），断言引擎收到的 `t` 就是这个数，格子按顺序完成、`elapsedMs` 只跟假时钟走。
+3. **`visibilitychange` 切到 hidden 必须作废当前轮。** 断言 `snapshot().voided === true`、页面出现「本轮已作废」文案、已计分轮数与档位不变。
+4. **`finish()` 一次训练只能调一次。** 走完整轮后 `repo.listSessions()` 长度 +1；再触发一次结束路径不得再多一条记录（Task 5 的一次性守卫会抛 `session already finished`）。
+5. **退出必须走确认框且不落库。** `confirm` 桩返回 false 时留在训练页、监听不摘；返回 true 时 `view.destroy()` 被调用、`repo.listSessions()` 不变。
+6. **`getGame(gameId)` 返回 `undefined` 时渲染「未实现」占位而不是崩。** M1 每天计划固定 3 项、注册表只有 1 项，这条分支每天都被真实踩到（Task 7 评审 M-6.2）。
+
+```bash
+cd "E:/WORK/脑力训练/focus-trainer" && npx vitest run src/ui && npx tsc --noEmit
+```
+
+Expected: 14 个测试 PASS（Task 8 的 router 3 + today 5，加这里 play 6）；`tsc` 无输出。
+
+- 如果某条契约在 `play.ts` 现有写法下根本测不出来（典型：rAF 循环封在闭包里，桩拿不到回调），**不要放宽断言**，改 `play.ts` 把 `raf` / `now` 做成可注入的可选参数（默认走真的 `requestAnimationFrame`），并把这处改动连同理由写进提交说明。这一步是 Task 9 唯一新增测试的地方，其余页面仍由类型检查、构建与 Task 10 浏览器验收负责。
+
+- [ ] **Step 8: 类型检查、全量回归与构建**
 
 ```bash
 cd "E:/WORK/脑力训练/focus-trainer" && npx tsc --noEmit && npx vitest run && npx vite build
 ```
 
-Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 129 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 13 + Task 6 26 + Task 7 10 + Task 8 8）；`vite build` 打印 `dist/` 产物且没有报错。
+Expected: `tsc --noEmit` 无任何输出；`vitest run` 全部 135 个测试 PASS（Task 1 7 + Task 2 13 + Task 3 22 + Task 4 30 + Task 5 13 + Task 6 26 + Task 7 10 + Task 8 8 + Task 9 6）；`vite build` 打印 `dist/` 产物且没有报错。
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 9: 提交**
 
 ```bash
 cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/styles.css focus-trainer/src/ui/pages focus-trainer/src/main.ts && git commit -m "feat(ui): add home, play, result and settings pages"
@@ -4154,6 +4174,6 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src && git commit -m "fix(ui)
 | 3 自动升降档并续档 | Task 2 的 `step` + Task 4 的 `gameState` store + Task 10 Step 3/8 实测 |
 | 4 今日计划与打卡 | Task 3 的 `buildPlan`/`streak` + Task 8 的 `ensureTodayPlan`/`saveFinishedSession`；M1 注册表只有 1 个游戏，计划当天只有 1 项，M2 注册满 5 个后自然变成 3 项 |
 | 5 趋势页 | 不在 M1，属 M3（首页用 disabled 按钮占位） |
-| 6 纯逻辑单测 + 帧时间实测 | Task 1–8 共 129 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6） |
+| 6 纯逻辑单测 + 帧时间实测 | Task 1–9 共 135 个测试；试次记录的 `onset`/`rt` 全部来自帧时间戳与 `PointerEvent.timeStamp`（Task 6，`play.ts` 的基准由 Task 9 Step 7 的桩测钉住） |
 
-M1 结束时应当满足：`npx tsc --noEmit` 干净、129 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。
+M1 结束时应当满足：`npx tsc --noEmit` 干净、135 个测试全绿、`npx vite build` 出 `dist/`、Task 10 的 Step 2–8 在手机尺寸浏览器里全部通过。

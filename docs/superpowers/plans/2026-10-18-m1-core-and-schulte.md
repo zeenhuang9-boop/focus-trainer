@@ -3255,6 +3255,8 @@ cd "E:/WORK/脑力训练" && git add focus-trainer/src/ui/dom.ts focus-trainer/s
 - 时钟契约（Task 5 的 `durationMs` 无负值/NaN 兜底，全靠本页遵守）：`runner.beginRound(now)` 与 `runner.tick(now)` 的 `now` 只能取 `requestAnimationFrame` 回调参数；`InputEvent.t` 只能取 `PointerEvent.timeStamp`。这两者与 rAF 时间戳同源于 `performance.now()`，任何一处填 `Date.now()` 都会让 `durationMs` 变成 1.7e12 量级。`Date.now()` 只允许用于 `startedAt`、种子与日期键的入参。
 - `runner.finish()` 只能调用一次（Task 5 已加一次性守卫，第二次抛错）：`saveFinishedSession` 内部是唯一调用点，页面不得再自己调 `finish()` 取记录，要用的数据从返回的 `record` 里拿。
 - 结算页对 `record` 只读：不得 `record.rounds[i].trials.sort(...)`、不得就地改写 `metrics`（要排序先 `[...arr].sort()`）。展示用的换算（毫秒→秒）写进局部变量，不要回写 `record`。这条是 Task 5 深拷贝（N-3）在真实流程里唯一会变得可达的地方。
+- `getGame(id)` 对未知 id 返回 `undefined`（Task 7 契约）：**M1 只注册舒尔特 1 个游戏，而今日计划固定取 3 项**，所以首页与训练页在 M1 每天都会遇到 2 个 `undefined`。二者都必须渲染「未实现」占位（禁用按钮 / 提示页）并在 `undefined` 之前完成 `gameId` 取值，不得 `getGame(id)!.xxx`。M2 注册满 5 个后该分支自然消失，但代码路径今天就要跑通 —— 训练页拿到 `undefined` 时崩掉，Task 10 的首页验收会当场踩到。
+- `engine` 与 `view` 的配对必须来自同一个 `GameModule`，且在同一处窄化：`GameModule.createView` 声明的是 `GameView<unknown>`（`types.ts:71`），`render` 是方法声明、参数按双变放行，所以 `strict` 抓不住「把 A 游戏的快照喂给 B 游戏的视图」。写法：`const mod = getGame(gameId); const eng = mod.createEngine() as GameEngine<...>`，`view.render(eng.snapshot())` 两个变量只能由这一处 `mod` 派生。Task 6/7 评审把这条列为 Task 9 入口约束（M-6.3），改 `types.ts` 泛型化不在 M1 范围内。
 - 本任务没有单元测试（页面依赖 DOM，Vitest 环境是 node）；验证方式是类型检查、全部单元测试回归、生产构建，实际操作在 Task 10 用浏览器验收。
 
 - [ ] **Step 1: 写基础样式**

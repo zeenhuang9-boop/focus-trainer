@@ -117,6 +117,25 @@ describe.each(impls)('$name repository', ({ make }) => {
     expect((await repo.getPlan('2026-10-18'))?.completed).toEqual([]);
   });
 
+  it('缺 key 的记录两种实现都拒绝且不落库', async () => {
+    const broken = { games: ['schulte'], completed: [] } as unknown as DayPlan;
+    await expect(repo.saveSession(rec('schulte', 100), state('schulte', 5), broken)).rejects.toThrow(TypeError);
+    expect(await repo.listSessions()).toEqual([]);
+    expect(await repo.getGameState('schulte')).toEqual(defaultGameState('schulte'));
+    await repo.saveSession(rec('schulte', 120), state('schulte', 5), null);
+    expect(await repo.listSessions()).toHaveLength(1);
+  });
+
+  it('写入后修改入参对象不影响库内数据', async () => {
+    const rec1 = rec('schulte', 100);
+    const st1 = state('schulte', 3);
+    await repo.saveSession(rec1, st1, dayPlan('2026-10-18'));
+    rec1.ability = 999;
+    st1.level = 9;
+    expect((await repo.lastSession('schulte'))?.ability).not.toBe(999);
+    expect((await repo.getGameState('schulte')).level).toBe(3);
+  });
+
   it('clearAll 清空全部数据', async () => {
     await repo.saveSession(rec('schulte', 100), state('schulte', 3), dayPlan('2026-10-18'));
     await repo.putSettings({ dayStartHour: 0 });
@@ -131,7 +150,9 @@ describe.each(impls)('$name repository', ({ make }) => {
 describe('openIdbRepository', () => {
   it('同一事务：计划写入失败时 session 和 gameState 都不落库', async () => {
     const repo = await openIdbRepository(uniqueDbName());
-    const broken = { games: ['schulte'], completed: [] } as unknown as DayPlan;
+    // 带函数值的记录能过 assertWriteKeys，但 IndexedDB 结构化克隆会同步抛 DataError，
+    // 用它专门验证 tx.abort() 这条回滚路径真的在承重。
+    const broken = { dayKey: '2026-10-18', games: ['schulte'], completed: [() => undefined] } as unknown as DayPlan;
     await expect(repo.saveSession(rec('schulte', 100), state('schulte', 5), broken)).rejects.toThrow();
     expect(await repo.listSessions()).toEqual([]);
     expect(await repo.getGameState('schulte')).toEqual(defaultGameState('schulte'));

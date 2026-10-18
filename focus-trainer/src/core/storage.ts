@@ -24,6 +24,14 @@ export interface Repository {
 
 const byStartedAt = (a: SessionRecord, b: SessionRecord) => a.startedAt - b.startedAt;
 
+// 两种实现必须拒绝同一批坏数据：内存实现对缺 key 的记录会静默写进 undefined 键，
+// 真机 IndexedDB 会抛错并回滚，测试（跑内存实现）就会给出与设备相反的结论。
+function assertWriteKeys(rec: SessionRecord, state: GameState, plan: DayPlan | null): void {
+  if (typeof rec.gameId !== 'string' || typeof rec.dayKey !== 'string') throw new TypeError('session 缺 gameId 或 dayKey');
+  if (typeof state.gameId !== 'string') throw new TypeError('gameState 缺 gameId');
+  if (plan !== null && typeof plan.dayKey !== 'string') throw new TypeError('plan 缺 dayKey');
+}
+
 export class MemoryRepository implements Repository {
   private sessions: SessionRecord[] = [];
   private states = new Map<GameId, GameState>();
@@ -75,6 +83,7 @@ export class MemoryRepository implements Repository {
   }
 
   async saveSession(rec: SessionRecord, state: GameState, plan: DayPlan | null): Promise<number> {
+    assertWriteKeys(rec, state, plan);
     const id = this.nextId++;
     this.sessions.push({ ...structuredClone(rec), id });
     this.states.set(state.gameId, structuredClone(state));
@@ -170,6 +179,7 @@ class IdbRepository implements Repository {
   }
 
   async saveSession(rec: SessionRecord, state: GameState, plan: DayPlan | null): Promise<number> {
+    assertWriteKeys(rec, state, plan);
     const tx = this.db.transaction(['sessions', 'gameState', 'plans'], 'readwrite');
     const done = txDone(tx);
     // 自增主键：值为 undefined 的 id 属性会让 add 抛 DataError，必须去掉

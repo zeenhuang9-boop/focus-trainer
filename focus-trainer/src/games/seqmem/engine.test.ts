@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { RoundResult } from '../../core/types';
 import { FRAME_MS, REVEAL_MS, SeqmemEngine } from './engine';
 import type { SeqmemSnapshot } from './engine';
 import { capSpan, seqmemLevel, soaMs } from './rules';
@@ -342,5 +343,144 @@ describe('SeqmemEngine 回忆判定', () => {
     expect(r1.metrics).toEqual(r2.metrics);
     expect(r1.timingValid).toBe(r2.timingValid);
     expect(r1.trials).not.toBe(r2.trials);
+  });
+});
+
+const GRID = 50; // = FRAME_MS，恰好「等于」阈值，严格大于才作废
+
+function range(from: number, to: number, step = GRID): number[] {
+  const out: number[] = [];
+  for (let t = from; t <= to; t += step) out.push(t);
+  return out;
+}
+
+// 按给定帧序列采样亮格（show / replay 都适用），返回实际亮过的格序
+function collectShow(eng: SeqmemEngine, frames: readonly number[]): number[] {
+  const seq: number[] = [];
+  for (const t of frames) {
+    eng.tick(t);
+    const lit = eng.snapshot().litIndex;
+    if (lit !== null && lit !== seq[seq.length - 1]) seq.push(lit);
+  }
+  return seq;
+}
+
+// 播放 → 点错一格 → 定格 → 回放 → 结束。播放帧由调用方给（用来造掉帧），其余按 50ms 网格走。
+function finishByWrongTap(eng: SeqmemEngine, playFrames: readonly number[]): RoundResult {
+  const seq = collectShow(eng, playFrames);
+  const recallAt = playFrames[playFrames.length - 1];
+  expect(eng.snapshot().phase).toBe('recall');
+  eng.input({ kind: 'cell', index: (seq[0] + 1) % 9, t: recallAt + 50 });
+  collectShow(eng, range(recallAt + 450, recallAt + 450 + 3000));
+  expect(eng.isDone()).toBe(true);
+  return eng.result();
+}
+
+// 一路答到底（7 条序列）的整轮剧本：输入完全由观察到的亮格与帧网格决定，不含任何随机性
+function playCleanRound(level: number, seed: number): RoundResult {
+  const eng = fresh(level, seed, 1, 0);
+  const lv = seqmemLevel(level);
+  let t = 0;
+  for (;;) {
+    const shown = watchShow(eng, t);
+    let at = shown.t + 50;
+    for (const cell of answerOrder(shown.seq, lv.dir)) {
+      eng.input({ kind: 'cell', index: cell, t: at });
+      at += 50;
+    }
+    if (eng.isDone()) break;
+    t = tickUntil(eng, at, (s) => s.phase === 'show').t;
+  }
+  return eng.result();
+}
+
+describe('SeqmemEngine 帧间隔判定', () => {
+  it('阈值是「严格大于 FRAME_MS」：50ms 网格不作废，51ms 间隔就作废', () => {
+    expect(finishByWrongTap(fresh(1, 42, 1, 0), range(0, 3000)).timingValid).toBe(true);
+    // 950 → 1001 是 51ms（一帧的抖动），其余仍是 50ms 网格
+    const jitter = [...range(0, 950), ...range(1001, 3001)];
+    expect(finishByWrongTap(fresh(1, 42, 1, 0), jitter).timingValid).toBe(false);
+  });
+
+  it('只判播放相位：回忆期与定格期的长间隔不作废，回放期的一帧超时照样作废', () => {
+    // (a) 播放 50ms 网格正常，回忆期跳一大段（用户在想）→ 仍有效
+    const thinking = fresh(1, 42, 1, 0);
+    const seq = collectShow(thinking, range(0, 3000));
+    thinking.input({ kind: 'cell', index: (seq[0] + 1) % 9, t: 3050 });
+    expect(thinking.snapshot().phase).toBe('reveal');
+    thinking.tick(20000); // 定格期被拉长到 16.5 秒：不是卡顿
+    expect(thinking.snapshot().phase).toBe('replay');
+    collectShow(thinking, range(20000, 23000));
+    expect(thinking.result().timingValid).toBe(true);
+
+    // (b) 回放（也是播放相位）掉一帧 → 作废
+    const stalling = fresh(1, 42, 1, 0);
+    const seq2 = collectShow(stalling, range(0, 3000));
+    stalling.input({ kind: 'cell', index: (seq2[0] + 1) % 9, t: 3050 });
+    stalling.tick(3450);
+    expect(stalling.snapshot().phase).toBe('replay');
+    // 3550 → 3701 是 151ms；尾部给到 6451 才能踩中 showEndAt = 6450
+    collectShow(stalling, [...[3500, 3550, 3701], ...range(3751, 6500)]);
+    expect(stalling.isDone()).toBe(true);
+    expect(stalling.result().timingValid).toBe(false);
+  });
+
+  it('掉帧只影响 timingValid，不影响 result 的其他字面值（且标志不会被后续干净帧清掉）', () => {
+    const clean = finishByWrongTap(fresh(1, 42, 1, 0), range(0, 3000));
+    // 750 → 900 掉一帧，之后的回放帧仍是 50ms 网格：违规发生在过去，标志必须粘住
+    const dirty = finishByWrongTap(fresh(1, 42, 1, 0), [...range(0, 750), ...range(900, 3000)]);
+    expect(dirty.timingValid).toBe(false);
+    expect({ ...dirty, timingValid: true }).toEqual(clean);
+  });
+});
+
+describe('SeqmemEngine 可复现性与 configure 全量重置', () => {
+  it('同一 (level, seed, roundNo) 两次 configure：快照逐字段相等，整轮 result 逐字段相等', () => {
+    for (const level of [1, 4, 8, 10]) {
+      const a = new SeqmemEngine();
+      const b = new SeqmemEngine();
+      a.configure(level, 2026, 2);
+      b.configure(level, 2026, 2);
+      expect(a.snapshot()).toEqual(b.snapshot());
+      const r1 = playCleanRound(level, 2026);
+      const r2 = playCleanRound(level, 2026);
+      expect(r1).toEqual(r2);
+      expect(r1.trials.length).toBeGreaterThan(0);
+      // brief 勘误：result() 不含播放内容（trial 只有标量字段），换 seed 的整轮 result 必然逐字段
+      // 相同，原断言 not.toEqual(playCleanRound(level,2027)) 无法成立。防「恒同一串」的意图改由
+      // 直接比对两个 seed 的首条播放序列来落实。
+      const seq2026 = watchShow(fresh(level, 2026, 1, 0), 0).seq;
+      const seq2027 = watchShow(fresh(level, 2027, 1, 0), 0).seq;
+      expect(seq2027).not.toEqual(seq2026);
+    }
+  });
+
+  it('跑到一半重新 configure：不留上一轮任何残留（时间、相位、trial、timing 标志全清）', () => {
+    const dirty = new SeqmemEngine();
+    dirty.configure(1, 42, 1);
+    dirty.start(0);
+    collectShow(dirty, [...range(0, 750), ...range(900, 3000)]); // 播放期掉一帧：timingOk 已脏
+    dirty.input({ kind: 'cell', index: 0, t: 3050 });
+    dirty.input({ kind: 'cell', index: 4, t: 3100 }); // 点对或点错都无所谓，只要状态被弄脏
+    dirty.tick(9000);
+    expect(dirty.snapshot().elapsedMs).toBeGreaterThan(0); // 确认它确实是「脏」的，别拿空引擎比
+
+    const clean = new SeqmemEngine();
+    clean.configure(1, 42, 3);
+    dirty.configure(1, 42, 3); // roundNo 不参与出题（裁定 R-9），只有它跟上一轮不同
+    expect(dirty.isDone()).toBe(false);
+    expect(dirty.snapshot()).toEqual(clean.snapshot());
+
+    dirty.start(0);
+    clean.start(0);
+    const frames = range(0, 3000);
+    const seqA = collectShow(dirty, frames);
+    const seqB = collectShow(clean, frames);
+    expect(seqA).toEqual(seqB); // 帧采样序列一致：时间基准与 rng 流都归零了
+    expect(dirty.snapshot()).toEqual(clean.snapshot());
+    for (const eng of [dirty, clean]) eng.input({ kind: 'cell', index: (seqA[0] + 1) % 9, t: 3050 });
+    for (const eng of [dirty, clean]) collectShow(eng, range(3450, 6450));
+    expect(dirty.result()).toEqual(clean.result());
+    expect(dirty.result().timingValid).toBe(true); // 上一轮的掉帧标志没漏进这一轮
   });
 });

@@ -133,6 +133,12 @@ export class SeqmemEngine implements GameEngine<SeqmemSnapshot> {
   }
 
   tick(now: number): void {
+    // spec:361 把「序列的高亮播放」列为时序关键阶段，只有 show / replay 参与帧间隔判定（裁定 R-7）。
+    // recall / reveal 是用户在想、在定格，帧稀疏不是卡顿；一旦判为不可信就不再翻回来。
+    // lastFrameAt 只由 tick 写，input() 的点击时间戳碰不到它（Task 2 起 input 只动 this.now）。
+    const playing = this.phase === 'show' || this.phase === 'replay';
+    if (playing && now - this.lastFrameAt > FRAME_MS) this.timingOk = false;
+    this.lastFrameAt = now;
     // rAF 时间戳单调递增（play.ts:148），这里只是把播放游标钳在「见过的最新帧」，
     // 不是给时钟差做负值/NaN 处理（M1 裁定 N-5）。
     this.now = Math.max(this.now, now);

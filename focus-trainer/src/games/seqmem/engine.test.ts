@@ -153,3 +153,194 @@ describe('SeqmemEngine 配置与播放', () => {
     expect(eng.snapshot().tapped).toEqual([]);
   });
 });
+
+describe('SeqmemEngine 回忆判定', () => {
+  it('按原顺序点回整串 → 记一条正确 trial，定格 400ms 后长度 +1 并播新序列', () => {
+    const eng = fresh(1, 42, 1, 0);
+    const first = watchShow(eng, 0);
+    const order = answerOrder(first.seq, 'fwd');
+    // 首击 3200、尾击 3300：revealUntil = 3700，正好踩在 10ms 帧网格上，
+    // 让「3690 仍定格 / 3700 才开播」两条断言可判定（brief 原注释的 3050+2×50 与其期望落点矛盾）。
+    let at = first.t + 200;
+    for (const cell of order) {
+      eng.input({ kind: 'cell', index: cell, t: at });
+      at += 50;
+    }
+    expect(eng.snapshot().phase).toBe('reveal');
+    expect(eng.snapshot().tapped).toEqual(order);
+    expect(eng.snapshot().correct).toBe(1);
+    expect(eng.snapshot().span).toBe(3);
+    eng.tick(3690);
+    expect(eng.snapshot().phase).toBe('reveal');
+    eng.tick(3700);
+    const s = eng.snapshot();
+    expect(s.phase).toBe('show');
+    expect(s.spanNo).toBe(2);
+    expect(s.span).toBe(4);
+    expect(s.tapped).toEqual([]);
+    expect(s.wrongIndex).toBeNull();
+    expect(s.correct).toBe(1);
+    // 新序列的播放起点 = 跨过 revealUntil 的那一帧，所以 showEndAt 可以逐字算出来
+    const second = watchShow(eng, 3700);
+    expect(second.seq).toHaveLength(4);
+    expect(second.t).toBe(3700 + 3 * 1100 + 800);
+  });
+
+  it('逆序档按倒序点回算对；按原序点回一定在本串内被判错', () => {
+    const ok = fresh(8, 42, 1, 0); // 8 档：rev、4×4、L0=4、on 650、gap 240 → SOA 890
+    const shown = watchShow(ok, 0);
+    expect(shown.t).toBe(3 * 890 + 650);
+    let at = shown.t + 40;
+    for (const cell of answerOrder(shown.seq, 'rev')) {
+      ok.input({ kind: 'cell', index: cell, t: at });
+      at += 40;
+    }
+    expect(ok.snapshot().phase).toBe('reveal');
+    expect(ok.snapshot().correct).toBe(1);
+    expect(ok.snapshot().wrongIndex).toBeNull();
+
+    const bad = fresh(8, 42, 1, 0);
+    const again = watchShow(bad, 0);
+    expect(again.seq).toEqual(shown.seq); // 同 (level, seed, roundNo) 出同一条序列
+    // 正序点回逆序档一定被判错：长度 4 的回文要求 seq[1] === seq[2]，而那正好被「相邻不等」禁掉
+    let t = again.t + 40;
+    let flagged = false;
+    for (const cell of again.seq) {
+      bad.input({ kind: 'cell', index: cell, t });
+      t += 40;
+      if (bad.snapshot().wrongIndex !== null) {
+        flagged = true;
+        break;
+      }
+    }
+    expect(flagged).toBe(true);
+    expect(bad.snapshot().phase).toBe('reveal');
+    expect(bad.snapshot().correct).toBe(0);
+  });
+
+  it('点错一格 → 定格 400ms → 原序回放一次 → 回放结束才 isDone，result 全字段可预测', () => {
+    const eng = fresh(1, 42, 1, 0);
+    const shown = watchShow(eng, 0);
+    const wrong = (shown.seq[0] + 1) % 9; // 一定不等于期望的第一击，不依赖具体序列内容
+    eng.input({ kind: 'cell', index: wrong, t: 3100 });
+    expect(eng.snapshot().phase).toBe('reveal');
+    expect(eng.snapshot().wrongIndex).toBe(wrong);
+    expect(eng.snapshot().correct).toBe(0);
+    expect(eng.isDone()).toBe(false);
+    eng.tick(3490);
+    expect(eng.snapshot().phase).toBe('reveal');
+    eng.tick(3500);
+    // 回放：按播放顺序重播，wrongIndex 在回放开始时清掉
+    const replay: number[] = [];
+    let t = 3500;
+    while (eng.snapshot().phase === 'replay') {
+      eng.tick(t);
+      const lit = eng.snapshot().litIndex;
+      if (lit !== null && lit !== replay[replay.length - 1]) replay.push(lit);
+      if (eng.snapshot().phase !== 'replay') break;
+      t += STEP;
+    }
+    expect(replay).toEqual(shown.seq);
+    expect(eng.snapshot().wrongIndex).toBeNull();
+    expect(eng.snapshot().phase).toBe('done');
+    expect(eng.snapshot().done).toBe(true);
+    expect(eng.isDone()).toBe(true);
+    expect(t).toBe(3500 + 2 * 1100 + 800);
+    const r = eng.result();
+    expect(r).toEqual({
+      level: 1,
+      seed: 42,
+      trials: [{ onset: 0, rt: 100, correct: false, span: 3, dir: 'fwd', taps: 0 }],
+      metrics: {
+        timeMs: 6500,
+        spans: 1,
+        spansCorrect: 0,
+        bestSpan: 0,
+        fwdSpan: 0,
+        revSpan: 0,
+        recallSumMs: 0,
+        cap: 9,
+      },
+      timingValid: true,
+    });
+  });
+
+  it('一路答对到长度上限 L0+6：第 7 条点对就立刻结束，不再播新序列', () => {
+    const eng = fresh(1, 42, 1, 0);
+    let t = 0;
+    for (let k = 1; k <= 7; k++) {
+      const shown = watchShow(eng, t);
+      expect(shown.seq).toHaveLength(k + 2); // 1 档 L0 = 3，第 k 条长度 = k + 2
+      let at = shown.t + 50;
+      for (const cell of answerOrder(shown.seq, 'fwd')) {
+        eng.input({ kind: 'cell', index: cell, t: at });
+        at += 50;
+      }
+      if (k < 7) {
+        const next = tickUntil(eng, at, (s) => s.phase === 'show');
+        expect(next.s.spanNo).toBe(k + 1);
+        t = next.t;
+      } else {
+        expect(eng.snapshot().phase).toBe('done');
+        expect(eng.isDone()).toBe(true);
+      }
+    }
+    const r = eng.result();
+    expect(r.trials.map((x) => x.span)).toEqual([3, 4, 5, 6, 7, 8, 9]);
+    expect(r.trials.every((x) => x.correct)).toBe(true);
+    expect(r.trials.map((x) => x.taps)).toEqual([3, 4, 5, 6, 7, 8, 9]);
+    expect(r.metrics.spans).toBe(7);
+    expect(r.metrics.spansCorrect).toBe(7);
+    expect(r.metrics.bestSpan).toBe(9);
+    expect(r.metrics.fwdSpan).toBe(9);
+    expect(r.metrics.revSpan).toBe(0);
+    expect(r.metrics.cap).toBe(9);
+  });
+
+  it('点错后追加的点击被忽略；未结束时 result() 抛错', () => {
+    const eng = fresh(1, 42, 1, 0);
+    const shown = watchShow(eng, 0);
+    eng.input({ kind: 'cell', index: shown.seq[0], t: 3050 });
+    eng.input({ kind: 'cell', index: shown.seq[0], t: 3060 });
+    expect(eng.snapshot().tapped).toEqual([shown.seq[0]]);
+    expect(() => eng.result()).toThrow('seqmem round is not finished');
+    eng.input({ kind: 'cell', index: (shown.seq[0] + 1) % 9, t: 3070 });
+    eng.input({ kind: 'cell', index: shown.seq[0], t: 3080 });
+    expect(eng.snapshot().tapped).toEqual([shown.seq[0]]);
+  });
+
+  it('result() 给出的是拷贝：改一份不影响下一次调用', () => {
+    const eng = fresh(1, 42, 1, 0);
+    const shown = watchShow(eng, 0);
+    eng.input({ kind: 'cell', index: (shown.seq[0] + 1) % 9, t: 3100 });
+    tickUntil(eng, 3500, (s) => s.done);
+    const a = eng.result();
+    expect(a.trials).toHaveLength(1);
+    a.trials[0].rt = -1;
+    a.metrics.spans = 99;
+    const b = eng.result();
+    expect(b.trials[0].rt).toBe(100);
+    expect(b.metrics.spans).toBe(1);
+    expect(a.trials[0]).not.toBe(b.trials[0]);
+  });
+
+  it('result() 可复现：同 seed 同输入序列，两次完整跑出的 result 逐字段相等', () => {
+    const play = () => {
+      const eng = fresh(1, 42, 1, 0);
+      const shown = watchShow(eng, 0);
+      eng.input({ kind: 'cell', index: (shown.seq[0] + 1) % 9, t: 3100 });
+      tickUntil(eng, 3500, (s) => s.done);
+      return eng.result();
+    };
+    const r1 = play();
+    const r2 = play();
+    expect(r1).toEqual(r2);
+    // 逐字段比对（toEqual 是深比较，这里再点名下每个字段的相等性，防止「整体相等但字段漂移」）
+    expect(r1.level).toBe(r2.level);
+    expect(r1.seed).toBe(r2.seed);
+    expect(r1.trials).toEqual(r2.trials);
+    expect(r1.metrics).toEqual(r2.metrics);
+    expect(r1.timingValid).toBe(r2.timingValid);
+    expect(r1.trials).not.toBe(r2.trials);
+  });
+});

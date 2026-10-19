@@ -86,13 +86,75 @@ export class SeqmemEngine implements GameEngine<SeqmemSnapshot> {
   }
 
   input(e: InputEvent): void {
-    // 裁定 R-8：非回忆相位的点击一律忽略（不记错、不进 trial、不推进 now）。Task 3 在此门后填判定。
+    // 裁定 R-8：非回忆相位、非 cell、已结束的点击一律忽略（不记错、不进 trial、不推进 now）。
     if (this.phase !== 'recall' || e.kind !== 'cell' || this.endAt !== null) return;
+    this.now = Math.max(this.now, e.t);
+    const total = this.lv.size * this.lv.size;
+    // 视图发不出越界下标，这一行只是挡住手工构造的 InputEvent，免得 expectedAt 拿到 undefined
+    if (!Number.isInteger(e.index) || e.index < 0 || e.index >= total) return;
+    const recallMs = e.t - this.showEndAt;
+    if (e.index === this.expectedAt(this.pos)) {
+      this.tapped.push(e.index);
+      this.pos += 1;
+      if (this.pos < this.seq.length) return;
+      this.correctSpans += 1;
+      this.bestSpan = Math.max(this.bestSpan, this.span);
+      this.recallSumMs += recallMs;
+      this.trials.push({
+        onset: this.showStartAt,
+        rt: recallMs,
+        correct: true,
+        span: this.span,
+        dir: this.lv.dir,
+        taps: this.tapped.length,
+      });
+      // 到上限且答对 → 本轮立刻结束（spec:96），endAt 用最后一次点击的帧时间戳，无需再播
+      if (this.span >= capSpan(this.lv)) {
+        this.endAt = e.t;
+        this.phase = 'done';
+        return;
+      }
+      this.phase = 'reveal';
+      this.revealUntil = e.t + REVEAL_MS;
+      return;
+    }
+    // 点错任一格 → 本轮结束，但先把正确序列回放一次（裁定 R-6）
+    this.trials.push({
+      onset: this.showStartAt,
+      rt: recallMs,
+      correct: false,
+      span: this.span,
+      dir: this.lv.dir,
+      taps: this.pos,
+    });
+    this.wrongIndex = e.index;
+    this.phase = 'reveal';
+    this.revealUntil = e.t + REVEAL_MS;
   }
 
   tick(now: number): void {
+    // rAF 时间戳单调递增（play.ts:148），这里只是把播放游标钳在「见过的最新帧」，
+    // 不是给时钟差做负值/NaN 处理（M1 裁定 N-5）。
     this.now = Math.max(this.now, now);
-    if (this.phase === 'show' && this.now >= this.showEndAt) this.phase = 'recall';
+    if (this.endAt !== null) return;
+    if ((this.phase === 'show' || this.phase === 'replay') && this.now >= this.showEndAt) {
+      if (this.phase === 'replay') {
+        // 回放按预定的 showEndAt 落点结束，而不是按「发现时已经过了多久的那一帧」，
+        // 这样 result().metrics.timeMs 不受掉帧影响。
+        this.endAt = this.showEndAt;
+        this.phase = 'done';
+        return;
+      }
+      this.phase = 'recall';
+      return;
+    }
+    if (this.phase === 'reveal' && this.now >= this.revealUntil) {
+      if (this.wrongIndex !== null) this.beginReplay(now);
+      else {
+        this.newSeq(this.span + 1);
+        this.beginShow(now);
+      }
+    }
   }
 
   snapshot(): SeqmemSnapshot {
@@ -118,7 +180,37 @@ export class SeqmemEngine implements GameEngine<SeqmemSnapshot> {
   }
 
   result(): RoundResult {
-    throw new Error('seqmem result() is implemented in Task 3');
+    if (this.endAt === null) throw new Error('seqmem round is not finished');
+    return {
+      level: this.level,
+      seed: this.seed,
+      // 裁定 R-3：trials 的自定义字段全是标量（span/dir/taps），所以 {...t} 就是完整拷贝；
+      // 播放内容与点击序列这些数组只活在 snapshot().tapped 里，绝不进 TrialRecord。
+      trials: this.trials.map((t) => ({ ...t })),
+      metrics: {
+        timeMs: Math.round(this.endAt - this.startAt),
+        spans: this.trials.length,
+        spansCorrect: this.correctSpans,
+        bestSpan: this.bestSpan,
+        fwdSpan: this.lv.dir === 'fwd' ? this.bestSpan : 0,
+        revSpan: this.lv.dir === 'rev' ? this.bestSpan : 0,
+        recallSumMs: Math.round(this.recallSumMs),
+        cap: capSpan(this.lv),
+      },
+      timingValid: this.timingOk,
+    };
+  }
+
+  // 答错后按「播放顺序」重播一次（不再倒放），到点才结束本轮
+  private beginReplay(at: number): void {
+    this.phase = 'replay';
+    this.wrongIndex = null;
+    this.showStartAt = at;
+    this.showEndAt = at + (this.span - 1) * soaMs(this.lv) + this.lv.onMs;
+  }
+
+  private expectedAt(i: number): number {
+    return this.lv.dir === 'fwd' ? this.seq[i] : this.seq[this.seq.length - 1 - i];
   }
 
   // 一条 rng 流贯穿整轮：第 k 条序列的内容只取决于前面消费过多少次 randInt（裁定 R-9）。

@@ -362,7 +362,7 @@ describe('renderPlay 的时钟契约', () => {
     const [record] = await h.repo.listSessions();
     // 计划项必须全部来自注册表：换成 GAME_IDS 会把进不去的游戏写进 DayPlan.games，
     // isPlanComplete 从此恒 false、streak 恒 0
-    expect(await h.repo.getPlan(EPOCH_DAY)).toMatchObject({ games: ['schulte'], completed: ['schulte'] });
+    expect(await h.repo.getPlan(EPOCH_DAY)).toMatchObject({ games: ['schulte', 'stroop'], completed: ['schulte'] });
     expect(record.startedAt).toBe(EPOCH);
     expect(record.dayKey).toBe(EPOCH_DAY);
     expect(record.durationMs).toBe(lastClick - begins[0]);
@@ -483,7 +483,7 @@ describe('renderPlay 的时钟契约', () => {
 
   it('游戏未注册时先返回首页，不读库也不渲染', async () => {
     const h = setup();
-    await expect(h.render('stroop')).resolves.toBeUndefined();
+    await expect(h.render('seqmem')).resolves.toBeUndefined();
     expect(h.replaceState).toHaveBeenCalledTimes(1);
     expect(h.replaceState).toHaveBeenCalledWith(null, '', '#/');
     expect(h.getGameState).not.toHaveBeenCalled();

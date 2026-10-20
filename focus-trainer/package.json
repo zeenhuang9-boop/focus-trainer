@@ -7,9 +7,16 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:apk": "node scripts/verify-apk.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.3",
     "fake-indexeddb": "6.2.6",
     "typescript": "5.9.3",
     "vite": "8.3.4",

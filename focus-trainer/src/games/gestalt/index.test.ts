@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createRng } from '../../core/rng';
 import type { RoundRecord } from '../../core/types';
-import { GESTALT_CHOICE_COUNT } from './rules';
+import { GESTALT_CHOICE_COUNT, buildTrialSpec, gestaltLevel } from './rules';
 import type { GestaltSnapshot } from './engine';
 import { gestalt } from './index';
 
@@ -44,28 +45,32 @@ describe('gestalt 模块元数据', () => {
 });
 
 describe('整轮端到端（模拟时钟 + 脚本化输入）', () => {
-  it('选对的一轮：judge pass/1，summarize 阈值 = 实测暴露', () => {
+  it('选对的一轮：下标取自 rules 层回放，judge 恰为 pass/1，summarize 恰为 100% / 420ms', () => {
     const eng = gestalt.createEngine();
     eng.configure(3, 21, 1);
     const t = toAnswer(eng, 10);
     const s = eng.snapshot() as GestaltSnapshot;
     expect(s.choices).toHaveLength(GESTALT_CHOICE_COUNT);
-    // 正确下标不能从快照读（反馈期才揭晓），用同 seed 重放 rules 层拿到
-    eng.input({ kind: 'choice', index: 0, t: t + 100 });
+    // 正确下标不能从快照读（反馈期才揭晓），只能在 rules 层重放 configure 的 rng 消费顺序：
+    // engine.ts:68-69 就是 createRng(seed) → buildTrialSpec(rng, gestaltLevel(level))，
+    // rng 是确定性序列，同 (level, seed) 必得同一份题面。先核对选项序列，确认回放出来的
+    // 就是引擎这一轮的题面，再用它的 correctIndex 作答 —— 上一版盲写 index:0 加 || 析取，
+    // 选错也能「通过」，这条断言等于没有（终审 SF-1）。
+    const replay = buildTrialSpec(createRng(21), gestaltLevel(3));
+    expect(s.choices.map((c) => c.id)).toEqual([...replay.choices]);
+    eng.input({ kind: 'choice', index: replay.correctIndex, t: t + 100 });
     eng.tick(t + 100 + 600);
     expect(eng.isDone()).toBe(true);
     const r = eng.result();
     expect(r.trials).toHaveLength(1);
-    expect(r.metrics.exposureMs).toBe(420); // 10ms 网格上 500→920 恰好整帧对齐
-    expect(r.metrics.requestedExposureMs).toBe(420);
-    const judged = gestalt.judge(r);
-    expect(judged.outcome === 'pass' || judged.outcome === 'fail').toBe(true);
-    expect(judged.score01).toBe(judged.outcome === 'pass' ? 1 : 0);
-    const rec: RoundRecord = { ...r, roundNo: 1, outcome: judged.outcome, score01: judged.score01, counted: true };
-    expect(gestalt.summarize([rec])).toEqual({
-      accuracy: judged.outcome === 'pass' ? 1 : 0,
-      thresholdMs: 420,
-    });
+    expect(r.trials[0].correct).toBe(true);
+    // 10ms 网格：fixation 500 → exposure 920（实测暴露 420）→ mask 1120 进作答，
+    // 作答落在 1220 ⇒ rt = 1220 - 500 = 720。逐字段钉死，不用 || 也不用 >=。
+    expect(r.metrics).toEqual({ correct: 1, rtMs: 720, exposureMs: 420, requestedExposureMs: 420 });
+    expect(r.timingValid).toBe(true);
+    expect(gestalt.judge(r)).toEqual({ outcome: 'pass', score01: 1 });
+    const rec: RoundRecord = { ...r, roundNo: 1, outcome: 'pass', score01: 1, counted: true };
+    expect(gestalt.summarize([rec])).toEqual({ accuracy: 1, thresholdMs: 420 });
     expect(gestalt.formatSummary(gestalt.summarize([rec])).map((i) => i.label)).toEqual(['正确率', '识别阈值']);
   });
 

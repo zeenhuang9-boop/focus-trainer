@@ -60,15 +60,26 @@ describe('页签表', () => {
 });
 
 describe('renderNav', () => {
-  it('训练中与结算页把容器交出去：hidden 且一个字都不写', () => {
+  it('先渲染常驻页再切进训练：容器被清空而不是留在旧页签上', () => {
+    vi.stubGlobal('document', { createElement: (tag: string) => new StubEl(tag) });
+    const root = new StubEl('nav');
+    renderNav(root as unknown as HTMLElement, { name: 'home' });
+    expect(root.children).toHaveLength(4);
+    expect(root.textContent).toContain('今日');
+
+    renderNav(root as unknown as HTMLElement, { name: 'play', gameId: 'schulte', mode: 'plan' });
+    expect(root.hidden).toBe(true);
+    expect(root.children).toHaveLength(0);
+    expect(root.textContent).toBe('');
+  });
+
+  it('四种非常驻路由都走隐藏入口', () => {
     for (const r of [
       { name: 'play', gameId: 'schulte', mode: 'plan' },
       { name: 'play', gameId: 'mot', mode: 'free' },
       { name: 'result', sessionId: 7 },
     ] as Route[]) {
-      const root = mount(r);
-      expect(root.hidden).toBe(true);
-      expect(root.children).toHaveLength(0);
+      expect(mount(r).hidden).toBe(true);
     }
   });
 
@@ -76,6 +87,8 @@ describe('renderNav', () => {
     for (const name of ['home', 'games', 'trend', 'settings'] as const) {
       const root = mount({ name });
       expect(root.hidden).toBe(false);
+      // 标签名要钉死：styles.css 的 #tabbar .tab { min-height: var(--tap) } 只给 <a> 兜底，写成别的就没人守 48px
+      expect(root.children.every((c) => c.tag === 'a')).toBe(true);
       expect(root.children.map((c) => c.attrs.get('href'))).toEqual(['#/', '#/games', '#/trend', '#/settings']);
     }
   });

@@ -246,19 +246,20 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 2. **历史体积数字不可互比**——同一条 `assembleDebug` 在增量与冷重打包两种模式下给出的数字不同。
 3. 一旦这条 APK 离开侧载场景（上架 / AAB / 签名发布），**先把 `packageDebug` 的增量缓存清掉再出发布包**，或改走 AAB 的可复现口径；那时体积才成为交付指标。
 
-## 13. 六条成功标准的现场审计（2026-10-20 20:01，命令全部当场重跑，不引用记忆）
+## 13. 六条成功标准的现场审计（首审 2026-10-20 20:01；2026-10-20 23:00 复审标准 1 与 6 —— **本轮因 `src/` 分页改版重出 APK**，命令全部当场重跑，不引用记忆）
 
 | # | 标准 | 当场实测证据 | 等级 |
 | --- | --- | --- | --- |
-| 1 | 可安装 debug APK（名/包名/竖屏/离线） | `npm run verify:apk` **共 13 项，失败 0 项**（含 `CN=Android Debug` 签名、无外部 origin、无网络字体、`index.html` 用 `./assets/…` 相对路径）；包体 4,155,203 B @ 19:39:25；`git log -1 -- src/` = `37a594e` 19:36:38 → **包晚于最后一次内容合并**；19:39 之后 `src/` 零提交 | **差「装进手机」这一步**：包侧全部实测，`可安装`本身未证 |
+| 1 | 可安装 debug APK（名/包名/竖屏/离线） | `npm run verify:apk` **共 13 项，失败 0 项**（含 `CN=Android Debug` 签名、无外部 origin、无网络字体、`index.html` 用 `./assets/…` 相对路径）；**本轮因 `src/` 分页改版重出**，包体 4,157,235 B @ 22:59:33（上一轮 4,155,203 B @ 19:39:25，差 +2,032 B；体积不是完整性信号，见 §12）；`git log -1 --format=%cd -- focus-trainer/src` = `7cf5fa6` 22:55:18 → **包晚于最后一次内容合并**；22:55 之后 `src/` 零提交。旧包 mtime 19:39 早于该提交，故按「先 `rm -f` 旧包再 `assembleDebug`」出包，以免 gradle 判 `UP-TO-DATE` 冻结旧 mtime | **差「装进手机」这一步**：包侧全部实测，`可安装`本身未证 |
 | 2 | 五款都能说明页→倒计时→多轮→结算并写库 | 浏览器注入帧时钟跑完整场（五款）；本轮真 IndexedDB 里 `sessions` 有 3 行、每行带 `rounds[]`/`trials[]`/`summary`/`ability`/`id` | 关闭（合成点击驱动，手感留真机） |
 | 3 | 难度自动升降档且下次续上 | 真库 `[schulte, plan, 1→4, ability 25, 3 轮]`、`[stroop, 1→3, 15, 4 轮]`；整页 reload 后 `gameState` 三行不变，再进训练页标题实测「第 4 档」 | 关闭（§11） |
 | 4 | 每日 3 项计划、3 项完成即打卡、显示连续天数 | 真库 `plans` 行 `{dayKey:"2026-10-20", games:[schulte,stroop,seqmem], completed:[三者]}`；连续天数的界面实测在 M1 验收记录 | 关闭 |
 | 5 | 趋势页五维雷达 + 单游戏近 30 天曲线 + 近 5 周日历 | M3 验收记录 17 条判据全填实测原文（含雷达标签 `clipped` 为空、字号提到 14） | 关闭 |
-| 6 | `core/` 与五个 engine 纯逻辑单测全通过、关键时序按帧时间戳入试次记录 | 当场 `npx vitest run` = **Test Files 40 passed / Tests 472 passed**；`npx tsc --noEmit` exit 0；真库 `trials[]` 字段为 `onset/rt/correct/span/dir/taps`，`rt` 是帧时间戳口径 | 关闭 |
+| 6 | `core/` 与五个 engine 纯逻辑单测全通过、关键时序按帧时间戳入试次记录 | 首审当场 `npx vitest run` = **Test Files 40 passed / Tests 472 passed**；`npx tsc --noEmit` exit 0；真库 `trials[]` 字段为 `onset/rt/correct/span/dir/taps`，`rt` 是帧时间戳口径。**本轮重出包前的门槛重跑：`npx tsc --noEmit` exit 0 + `npx vitest run` = 43 文件 / 517 用例全绿**（计数原因的记录见 §14，此处不覆盖首审原值） | 关闭 |
 
 **审计结论**：6 条里 5 条由当场可重跑的实测支撑；唯一未证的是标准 1 的「可安装」，它需要手机在场，执行入口是 `2026-10-20-m4-realdevice-runbook.md`。
-**包内一致性另附**：`dist` 的 4 个产物与 APK 内 `assets/public/` 同名文件 **MD5 逐一相同**（`index-txlbMeE-.js` / `index-CeJy5hqz.css` / `web-BnoYLHys.js` / `index.html`）。
+**包内一致性另附**：`dist` 的 4 个产物与 APK 内 `assets/public/` 同名文件 **MD5 逐一相同**。本轮实测四个条目名与三方 MD5 全等：`index.html` `a047da99…`、`assets/index-BmpvXtht.js` `c557d0ec…`、`assets/index-DED0C_qq.css` `dac3d7fe…`、`assets/web-DRox84OO.js` `cc19e1a1…`（首审那轮的 `index-txlbMeE-.js` / `index-CeJy5hqz.css` / `web-BnoYLHys.js` 随 `src/` 改版换代，属正常）。
+**本轮加做的包内三查**（`verify:apk` 审的是磁盘 `assets/public`，所以下列三条一律用 `unzip -p` 从 APK 里取文件，不读磁盘）：① 包内 `assets/public/index.html` 的 `<meta name="theme-color" content="#eef0ea" />`；② 包内 `index.html` 对 js/css 的引用是相对路径 `src="./assets/index-BmpvXtht.js"` / `href="./assets/index-DED0C_qq.css"`，无 `http(s)://`；③ 包内 `assets/public/` 全部 6 个文件的 `http(s)://` 字面量只命中 `http://www.w3.org/2000/svg`（SVG 命名空间常量，`index-BmpvXtht.js` 内 2 处），无任何其它 origin，**未加白名单**。包内还可见 `#tabbar` / `#banner` 节点，与本轮 `src/` 分页改版后的 DOM 一致。
 **本文件不构成标准 1 已关闭的宣告。**
 
 ---

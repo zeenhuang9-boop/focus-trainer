@@ -1,6 +1,7 @@
 import { h } from './dom';
 import { href, type Route } from './router';
 
+// 不导出：全仓没有外部消费者（main.ts 只用 TABS/renderNav，测试走 DOM 面）。
 interface Tab {
   readonly route: Route;
   readonly label: string;

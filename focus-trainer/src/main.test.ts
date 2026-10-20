@@ -596,5 +596,8 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
     expect(h.view.textContent).toContain('设置');
     const current = h.tabbar.children.filter((c) => c.attrs.get('aria-current') === 'page');
     expect(current).toHaveLength(1);
+    // 把「恰有一条 aria-current」和它的 href 绑死：nav.ts 里 active 与 TABS 项错配时 boot 级也会红。
+    expect(current[0].tag).toBe('a');
+    expect(current[0].attrs.get('href')).toBe('#/settings');
   });
 });

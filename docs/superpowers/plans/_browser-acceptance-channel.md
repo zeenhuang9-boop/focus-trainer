@@ -60,3 +60,14 @@ MCP 逐格点击一次往返约 1 秒，任何「N 秒内点完」的判分目�
 `evaluate_script` 报 `Browser operation timed out after 15000ms` **不代表脚本失败**：脚本可以在页面里继续跑完并落库，只是返回值赶不上 CDP 的 15 秒窗口。判别法：紧接着发一个不含任何等待、只读 `location.href` / `#view` 文本 / `String(window.requestAnimationFrame)` 的最小调用 —— 能立刻返回就说明通道一直是活的，页面状态就是证据（本轮就看到过页面停在「第 1 / 3 轮　第 4 档　用时 9.6 秒　误点 24」的中间态，而前一个调用"超时"了）。
 所以判据必须拆成**一次调用只做一件事**：① 跑完整场并落库 → ② 只读库 → ③ `navigate_page(type=reload)` → ④ 只读库并看续上什么档。把「跑场 + 读库 + 再驱动」塞进一个脚本，必然赶不上。
 两个配套纪律：进门**第一行**就 `window.confirm = () => true`（原生对话框会堵死整条通道，且这一句成本为零）；`indexedDB.open()` 与每个 `getAll()` 都用 `Promise.race` 配一个 3–5 秒的 `TIMEOUT` 兜底，别让一个不返回的请求吃掉整个窗口。
+
+## 2026-10-20 第三次追加：webview 不可见时，输入与帧时钟同时失效（分页减负验收实测）
+
+顶层视口这轮实测 `window.innerWidth/innerHeight = 894×598`（又一个不稳值，判据仍只走同源 iframe）。
+
+1. **`document.visibilityState === 'hidden'` 时 Blink 完全不派发 rAF**，而 §5 那套注入帧时钟有个隐藏前提：桩必须在该页面**第一次**调用 `requestAnimationFrame` 之前装好。真实情况是 `main.ts` 一挂载就把一次**真实** rAF 排进了队列，此后桩永远等不到回调 —— 症状是 `__S.cbs.size === 0`、倒计时冻在初始数字、怎么 `pump` 都不动。
+   **解法（一句话）：装桩之后重挂页面。** `w.location.hash = '#/'; w.location.hash = '#/play/<id>/plan';` —— 路由回调 abort 旧页并重新 `renderPlay`，它这一轮的 `requestAnimationFrame(frame)` 解析到的是全局上的桩，循环就此归逻辑时钟管（实测 `cbs: 1`）。别去改引擎，也别以为「帧驱动状态机在隐藏页跑不动」是产品缺陷。
+2. **同一个状态下 `mcp click` 会「报成功但文档里收不到事件」**：探针（`document.addEventListener('click', …, true)` 计数）证实事件一个都没进。`take_screenshot` 报 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE (visible=false, attached=true, cdpAttached=true)`；`select_page({bringToFront: true})` 返回成功但 `visibilityState` 仍是 `hidden`；外部 Chrome 那条路报 `Failed to create MCP tab group: No current window`。
+   → 「真实手指」这一类判据在内置 webview 不可见时**拿不到**，只能：接线用 `el.click()` + `hashchange` 计数承接（写明「证明的是接线，不是手指」），手指本身交**真机**。别为了让点击生效去改产品代码。
+3. **`#tabbar` 这类结构判据要写清 `children` 还是后代**。本轮 `renderNav` 的直接子节点就是 `<a class="tab">`（不是 `div > a`），所以 `children.filter(aria-current)` 与 `.tab` 的 48px 实测都成立；换成别的 DOM 结构同一式就拿到空数组。**判据旁边的实测原文要带上取的是哪一层**，否则下一个人（或下一个评审）会照着错的层级读。
+

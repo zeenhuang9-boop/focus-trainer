@@ -25,7 +25,7 @@ for (let i = 0; i <= n; i++) engine.tick(from + i * stepMs);
 
 `src/ui/pages/play.test.ts` 里有一条用例把今日计划的 `games` 写成硬编码数组，而 `play.ts` 是 `GAMES.map(g => g.id)` 建计划。**每次向 `GAMES` 追加一个游戏，这条都会变红**（stroop 注册时实测命中，`51c2c8a` 已把它改成 `['schulte', 'stroop']`）。
 
-规定的动作：注册任务里把这条用例的期望值改成注册后的完整 id 数组。
+规定的动作：把这条用例的期望值改成**注册顺序的前 `PLAN_SIZE` 个 id**。⚠️ 本条原文（「注册后的完整 id 数组」）是错的，2026-10-20 由 M2 汇总步骤实测推翻：`scheduler.ts` 的 `PLAN_SIZE = 3` 会截断 `DayPlan.games`，所以五个游戏全注册后今日计划仍然只有 `['schulte', 'stroop', 'seqmem']`，永远不可能出现五个 id。用例本身和它上面那条「计划项必须全部来自注册表」的注释都不许动。
 - **只改期望值**，不删用例、不弱化断言——这条用例的意图正是「今日计划跟随注册表」，它是 `GAME_IDS` 顺序回归的活守卫。
 - 定位用 `grep -n "getPlan" src/ui/pages/play.test.ts`，不许按行号找（行号会漂）。
 

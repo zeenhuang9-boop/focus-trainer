@@ -1,5 +1,6 @@
 import { shuffle } from '../../core/rng';
 import type { Rng } from '../../core/rng';
+import type { Outcome, RoundRecord, RoundResult, SummaryItem } from '../../core/types';
 import { FIGURES } from './figures';
 import type { Family, FigureId, FigureSpec } from './figures';
 
@@ -110,4 +111,29 @@ export function buildTrialSpec(
     sameFamilyDistractors: same,
     crossFamilyDistractors: specs.length - 1 - same,
   };
+}
+
+/** spec:176-177 —— 选对 pass 得 1，选错 fail 得 0；没有 hold，也不掺反应时。 */
+export function judgeGestalt(r: RoundResult): { outcome: Outcome; score01: number } {
+  const correct = r.metrics.correct === 1;
+  return { outcome: correct ? 'pass' : 'fail', score01: correct ? 1 : 0 };
+}
+
+/** spec:178 —— 识别阈值取最后 6 个计分试次的实测暴露时长均值。 */
+export const THRESHOLD_WINDOW = 6;
+
+export function summarizeGestalt(rounds: readonly RoundRecord[]): Record<string, number> {
+  const counted = rounds.filter((r) => r.counted);
+  if (counted.length === 0) return { accuracy: 0, thresholdMs: 0 };
+  const hits = counted.filter((r) => r.metrics.correct === 1).length;
+  const tail = counted.slice(Math.max(0, counted.length - THRESHOLD_WINDOW));
+  const mean = tail.reduce((sum, r) => sum + r.metrics.exposureMs, 0) / tail.length;
+  return { accuracy: Math.round((hits / counted.length) * 1000) / 1000, thresholdMs: Math.round(mean) };
+}
+
+export function formatGestaltSummary(s: Record<string, number>): SummaryItem[] {
+  return [
+    { label: '正确率', value: `${Math.round(s.accuracy * 100)}%` },
+    { label: '识别阈值', value: `${s.thresholdMs} 毫秒` },
+  ];
 }

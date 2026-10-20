@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createRng } from '../../core/rng';
+import type { RoundRecord, RoundResult } from '../../core/types';
 import { FIGURES, type FigureSpec } from './figures';
 import {
-  GESTALT_CHOICE_COUNT, GESTALT_LEVELS, GESTALT_MAX_LEVEL,
-  buildChoiceSpecs, buildChoices, buildTrialSpec, gestaltLevel, pickTarget, rotationDeg,
+  GESTALT_CHOICE_COUNT, GESTALT_LEVELS, GESTALT_MAX_LEVEL, THRESHOLD_WINDOW,
+  buildChoiceSpecs, buildChoices, buildTrialSpec, formatGestaltSummary, gestaltLevel,
+  judgeGestalt, pickTarget, rotationDeg, summarizeGestalt,
   type GestaltLevel,
 } from './rules';
 
@@ -127,5 +129,103 @@ describe('选项阵列', () => {
     expect(ids).toContain(t.id);
     // 同 seed + 同 target 必须逐字相等；换成另一套独立洗牌就会飘（buildChoices 只准 map id）
     expect(buildChoices(createRng(5), t, lv)).toEqual(ids);
+  });
+});
+
+const roundResult = (metrics: Record<string, number>): RoundResult => ({
+  level: 5,
+  seed: 1,
+  trials: [{ onset: 0, rt: 500, correct: metrics.correct === 1 }],
+  metrics,
+  timingValid: true,
+});
+
+const rec = (over: Partial<RoundRecord> & { correct: number; exposureMs: number }): RoundRecord => ({
+  level: 3,
+  seed: 1,
+  trials: [],
+  timingValid: true,
+  roundNo: 1,
+  outcome: over.correct === 1 ? 'pass' : 'fail',
+  score01: over.correct === 1 ? 1 : 0,
+  counted: true,
+  metrics: { correct: over.correct, rtMs: 400, exposureMs: over.exposureMs },
+});
+
+describe('judgeGestalt 的字面判分表', () => {
+  it('五行表驱动（含边界）', () => {
+    const cases: Array<[Record<string, number>, 'pass' | 'fail', number]> = [
+      [{ correct: 1, rtMs: 400, exposureMs: 80, requestedExposureMs: 80 }, 'pass', 1],
+      [{ correct: 0, rtMs: 400, exposureMs: 80, requestedExposureMs: 80 }, 'fail', 0],
+      [{ correct: 1, rtMs: 99999, exposureMs: 600, requestedExposureMs: 600 }, 'pass', 1], // 反应时不参与判分
+      [{ correct: 0.5, rtMs: 1, exposureMs: 1, requestedExposureMs: 1 }, 'fail', 0], // 严格 === 1
+      [{ rtMs: 1, exposureMs: 1, requestedExposureMs: 1 }, 'fail', 0], // 缺字段 → fail，不抛
+    ];
+    for (const [metrics, outcome, score01] of cases) {
+      expect(judgeGestalt(roundResult(metrics))).toEqual({ outcome, score01 });
+    }
+  });
+
+  it('judge 不看 timingValid（作废是 SessionRunner 的活）', () => {
+    const r = { ...roundResult({ correct: 1 }), timingValid: false };
+    expect(judgeGestalt(r)).toEqual({ outcome: 'pass', score01: 1 });
+  });
+});
+
+describe('summarizeGestalt 与 formatGestaltSummary', () => {
+  it('正确率 = 命中 / 计分轮，保留三位', () => {
+    const rounds = Array.from({ length: 16 }, (_, i) => rec({ correct: i < 12 ? 1 : 0, exposureMs: 100 }));
+    expect(summarizeGestalt(rounds).accuracy).toBe(0.75);
+  });
+
+  it('识别阈值只取最后 6 个计分轮的实测暴露时长', () => {
+    expect(THRESHOLD_WINDOW).toBe(6);
+    const rounds = [
+      ...Array.from({ length: 10 }, () => rec({ correct: 1, exposureMs: 600 })),
+      ...Array.from({ length: 6 }, () => rec({ correct: 0, exposureMs: 100 })),
+    ];
+    expect(summarizeGestalt(rounds).thresholdMs).toBe(100);
+  });
+
+  it('不足 6 轮时取全部；四舍五入到整数毫秒', () => {
+    const rounds = [1, 2, 3, 4].map((n) => rec({ correct: 1, exposureMs: 100 * n + 3 }));
+    expect(summarizeGestalt(rounds).thresholdMs).toBe(253); // (103 + 203 + 303 + 403) / 4 = 253
+  });
+
+  // 取整边界（本条为变异自检补测，非计划正文）：断言阈值与正确率各有一个 Math.round。
+  // 若把 summarizeGestalt 的 Math.round(mean) 去掉，均值会停在 100.5 而不再是 101；
+  // 若把 accuracy 的 Math.round(x*1000)/1000 去掉，1/3 会停在 0.3333…，都过不了这条。
+  it('取整边界：阈值均值 100.5 → 101；正确率 1/3 → 0.333（三位）', () => {
+    expect(summarizeGestalt([rec({ correct: 1, exposureMs: 100 }), rec({ correct: 1, exposureMs: 101 })]).thresholdMs).toBe(101);
+    expect(
+      summarizeGestalt([
+        rec({ correct: 1, exposureMs: 100 }),
+        rec({ correct: 0, exposureMs: 100 }),
+        rec({ correct: 0, exposureMs: 100 }),
+      ]).accuracy,
+    ).toBe(0.333);
+  });
+
+  it('counted=false 的轮既不进正确率也不进阈值；全空返回 0/0', () => {
+    const bad = rec({ correct: 1, exposureMs: 600 });
+    const rounds = [
+      bad,
+      { ...rec({ correct: 0, exposureMs: 80 }), counted: false },
+      { ...rec({ correct: 0, exposureMs: 80 }), counted: false },
+    ];
+    expect(summarizeGestalt([rounds[1], rounds[2]])).toEqual({ accuracy: 0, thresholdMs: 0 });
+    expect(summarizeGestalt(rounds)).toEqual({ accuracy: 1, thresholdMs: 600 });
+    expect(summarizeGestalt([])).toEqual({ accuracy: 0, thresholdMs: 0 });
+  });
+
+  it('formatSummary 的中文标签与单位', () => {
+    expect(formatGestaltSummary({ accuracy: 0.75, thresholdMs: 158 })).toEqual([
+      { label: '正确率', value: '75%' },
+      { label: '识别阈值', value: '158 毫秒' },
+    ]);
+    expect(formatGestaltSummary({ accuracy: 0, thresholdMs: 0 })).toEqual([
+      { label: '正确率', value: '0%' },
+      { label: '识别阈值', value: '0 毫秒' },
+    ]);
   });
 });

@@ -90,7 +90,24 @@ check('签名者是调试证书 CN=Android Debug', /CN=Android Debug/.test(signe
 
 // 离线审计：APK 里真正打包的 web 资源不得引用任何外部 origin
 const URL_RE = /https?:\/\/[A-Za-z0-9.\-_]+/g;
-const ALLOW_ORIGIN = /^https?:\/\/([a-z0-9-]+\.)?w3\.org/i; // 只放行 XML 命名空间字符串，别的一律算外链
+// 旧写法 /^https?:\/\/([a-z0-9-]+\.)?w3\.org/i 只有前缀、没有结尾锚：
+// https://w3.org.evil.example 会因子串命中 w3.org 而被放行。本脚本是成功标准 1「离线」的
+// 证明工具，审计工具漏判比产品漏判更危险（终审 SF-2）。
+// 改成解析 host 再比对白名单：host 必须恰好是 ALLOW_HOSTS 之一或它的子域。
+//   放行：https://www.w3.org、http://www.w3.org/2000/svg、http://localhost、http://localhost:5173
+//   拒绝：https://w3.org.evil.example（前缀伪装）、https://cdn.example.com、任意其它 host
+// URL_RE 的字符类不含「:」，带端口的 origin 到检查器时已被截断成 http://localhost，
+// 截断只丢端口、不丢 host，所以 host 比对仍然成立。
+const ALLOW_HOSTS = ['w3.org', 'localhost'];
+function isAllowedOrigin(raw) {
+  let host;
+  try {
+    host = new URL(raw).hostname.toLowerCase();
+  } catch {
+    return false; // 解析不出 host 就按外链算，宁可误报不可漏报
+  }
+  return ALLOW_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+}
 function collect(dir) {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -105,7 +122,7 @@ const fontOffenders = new Set();
 for (const file of collect(PUBLIC_DIR)) {
   const text = readFileSync(file, 'utf8');
   for (const raw of text.match(URL_RE) ?? []) {
-    if (!ALLOW_ORIGIN.test(raw)) offenders.add(`${raw}  <-  ${file}`);
+    if (!isAllowedOrigin(raw)) offenders.add(`${raw}  <-  ${file}`);
   }
   for (const hit of text.match(/@font-face|fonts\.googleapis\.com|fonts\.gstatic\.com|@import\s+url\(/g) ?? []) {
     fontOffenders.add(`${hit}  <-  ${file}`);

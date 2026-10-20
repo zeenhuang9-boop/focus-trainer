@@ -4,6 +4,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'play'; gameId: GameId; mode: Mode }
   | { name: 'result'; sessionId: number }
+  | { name: 'trend' }
   | { name: 'settings' };
 
 function isGameId(s: string | undefined): s is GameId {
@@ -17,6 +18,7 @@ export function parseRoute(hash: string): Route {
     return { name: 'play', gameId: a, mode: b };
   }
   if (head === 'result' && parts.length === 2 && /^\d+$/.test(a)) return { name: 'result', sessionId: Number(a) };
+  if (head === 'trend' && parts.length === 1) return { name: 'trend' };
   if (head === 'settings' && parts.length === 1) return { name: 'settings' };
   return { name: 'home' };
 }
@@ -29,6 +31,8 @@ export function href(r: Route): string {
       return `#/play/${r.gameId}/${r.mode}`;
     case 'result':
       return `#/result/${r.sessionId}`;
+    case 'trend':
+      return '#/trend';
     case 'settings':
       return '#/settings';
   }

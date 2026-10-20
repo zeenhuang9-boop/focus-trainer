@@ -66,7 +66,7 @@ export async function renderHome(view: HTMLElement, ctx: AppContext, signal: Abo
     h(
       'div',
       { class: 'row' },
-      h('button', { disabled: true, title: '趋势页在 M3 提供' }, '趋势'),
+      h('button', { onclick: () => navigate({ name: 'trend' }) }, '趋势'),
       h('button', { onclick: () => navigate({ name: 'settings' }) }, '设置'),
     ),
   );

@@ -5,6 +5,7 @@ import { h } from './ui/dom';
 import { renderHome } from './ui/pages/home';
 import { renderPlay } from './ui/pages/play';
 import { renderResult } from './ui/pages/result';
+import { renderTrends } from './ui/pages/trends';
 import { renderSettings } from './ui/pages/settings';
 import { startRouter, type Route } from './ui/router';
 
@@ -16,6 +17,8 @@ function show(route: Route, view: HTMLElement, ctx: AppContext, signal: AbortSig
       return renderPlay(view, ctx, route.gameId, route.mode, signal);
     case 'result':
       return renderResult(view, ctx, route.sessionId, signal);
+    case 'trend':
+      return renderTrends(view, ctx, signal);
     case 'settings':
       return renderSettings(view, ctx, signal);
   }

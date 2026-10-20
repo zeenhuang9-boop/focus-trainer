@@ -28,3 +28,16 @@ describe('parseRoute', () => {
     for (const r of routes) expect(parseRoute(href(r))).toEqual(r);
   });
 });
+
+describe('trend 路由', () => {
+  it('#/trend 解析成 trend，多余段落回落 home', () => {
+    expect(parseRoute('#/trend')).toEqual({ name: 'trend' });
+    expect(parseRoute('#trend')).toEqual({ name: 'trend' });
+    expect(parseRoute('#/trend/schulte')).toEqual({ name: 'home' });
+  });
+
+  it('href 与 parseRoute 双向一致', () => {
+    expect(href({ name: 'trend' })).toBe('#/trend');
+    expect(parseRoute(href({ name: 'trend' }))).toEqual({ name: 'trend' });
+  });
+});

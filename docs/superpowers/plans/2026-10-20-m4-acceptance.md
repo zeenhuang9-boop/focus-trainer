@@ -126,3 +126,43 @@ APK mtime                                              2026-10-20 19:07:02 +0800
 | 6 | `core/` 与五个 engine 纯逻辑单测全通过 + 关键时序按帧时间戳实测写入试次记录 | **关闭** | 468 用例 0 失败；`timingValid` 的 >50ms 判定在五处契约上都有守卫（含 mot 提示期的有意收紧，已标明偏离 spec §6:361 的范围） |
 
 **这一包是「交付意义上的最终包」的条件**：此后 `src/` 若再有任何合并（含终审判定后置的 SF-3/4/5/6/7/8/9/11 与 14 条 nit），必须重跑第 7 章的 Step 1–3 并重新出包，否则本结论作废。
+
+## 8. 交付终局（2026-10-20 19:39 最终包）
+
+第 7 章那一包（4,177,248 B @ 19:07）随后被 **`37a594e` 的 `src/` 合并作废** —— 按第 7 章末尾自定的口径，任何后续 `src/` 合并都要重跑 Step 1–3 并重出。第二次内容合并补的是 spec §6 第一条的执行空白：
+
+> spec `docs/superpowers/specs/2026-10-18-focus-trainer-design.md:359`：IndexedDB 打开失败 → 顶部提示「本次成绩无法保存」+ 改用内存仓库 + **游戏照常可玩**。
+
+`src/main.ts:35-40` 一直在做前两件事，但 `boot()` 从未被任何测试 import 过，所以**这条分支一次都没执行过**（终审 SF-5 只把它看成「`storageOk` 写了没人读」的死字段并判后置 —— 那条表述要更正：提示功能存在，缺的是执行证据）。`src/main.test.ts` 的 4 条用例补上后，第 4 条的覆盖层次是**引擎级**：真 reject → 真 `MemoryRepository` → 真首页渲染并写今日计划 → 真点「开始训练」走 `navigate`/`hashchange`/`startRouter` → 真倒计时 + 三轮舒尔特 → `saveSession` 返回 `id=1`、`listSessions` 0→1、`plan.completed=['schulte']`、id 流进 `#/result/1` 且结算页真渲染。变异检验：删掉 `banner.hidden = false` ⇒ 用例 1 与 4 双红。
+
+**最终数字（控制器在树干净、无并发写手的窗口里亲自复跑）**
+
+```
+npx vitest run       -> Test Files 40 passed (40) / Tests 472 passed (472) / 0 failed   exit 0
+npx tsc --noEmit     -> 零输出                                                          exit 0
+npm run build        -> 产出 dist/                                                     exit 0
+npx cap sync android -> ✔ update android                                               exit 0
+gradlew assembleDebug（先删旧 APK 强制重打包）-> BUILD SUCCESSFUL in 13s                 exit 0
+npm run verify:apk   -> 共 13 项，失败 0 项。                                            exit 0
+```
+
+最终交付物：**`focus-trainer/android/app/build/outputs/apk/debug/app-debug.apk`，4,155,203 B（3.96 MB），构建 19:39:25**。判据成立：`37a594e` 合并于 19:36:38 < 19:39:25。
+
+**为什么还要从 APK 的 zip 里再核一遍**：第 2、7 章的离线审计与一致性检查读的是磁盘上的 `android/app/src/main/assets/public/`（gradle 的输入），不是 APK 内部。下面这组直接从 APK 里取出：
+
+```
+unzip -p app-debug.apk assets/public/index.html  ->  src="./assets/index-txlbMeE-.js"
+APK 内 assets/public 文件数                      ->  6
+APK 内该 chunk 的 MD5                            ->  1ce7532d99ed48211fdceba3772d3997  == dist/assets/index-txlbMeE-.js
+APK 内 fixture / offlink 残留                    ->  无
+APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次命中
+```
+
+两处如实记录的偏差：
+
+1. **体积从 4,177,248 变为 4,155,203（−22 KB）**，输入（同一份 `assets/public`）与命令（同一条 `assembleDebug`）都没变。能确证的不是代码差异（chunk MD5 相同、13 项断言相同），所以记成未解释的构建产物差异；将来若要发布而非侧载，这条必须先查清（怀疑方向：`--no-daemon` 冷启动的 zip 对齐/压缩差异，或上一轮增量里带着前几版的中间产物）。
+2. `main.test.ts` 的桩里 `location.hash` 赋值**同步**派发 `hashchange`（真机是下一个任务），是该桩唯一的时序简化。所以第 4 条用例证明「装配链路在内存仓库下跑得通」，不证明真机的异步时序 —— 后者由浏览器/真机验收承担。
+
+**spec §6 三条现在都有执行证据**：① 打开失败提示 + 内存仓库可玩（`src/main.test.ts`，本轮）；② 帧间隔 >50ms 判 `timingValid = false`（五处契约守卫，含 MOT 提示期的有意收紧，`490ad93` 已标明它超出 §6:361 点名的范围）；③ 页面出错兜底渲染（`main.ts:52-54`，由页面级用例间接覆盖）。
+
+**第 4 章与第 5 章（真机清单、`persisted()`）仍是待补状态**，本文件不据此宣告成功标准 1 的「可安装」已被真机证明 —— 机器侧断言与包内一致性已闭环，手指按下去那一次还欠着。

@@ -180,14 +180,13 @@ function setup(opts: { levels?: Array<[GameId, number]> } = {}) {
     },
   });
 
+  // 只暴露真被读到的键（终审 N-3：repo/ctx/hash/body 四个此前只写不读）。
+  // 上面那几个变量照旧要造：ctx 是 renderLibrary 的入参、body 是 document 桩的一部分，
+  // 删的只是 return 里的出口，不是构造。
   return {
     view,
-    body,
-    repo,
-    ctx,
     ac,
     hashSet,
-    hash: (): string => hashValue,
     render: (): Promise<void> => renderLibrary(view as unknown as HTMLElement, ctx, ac.signal),
   };
 }

@@ -6,9 +6,19 @@ const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// 规则解析层共用这一份「已剥注释」的文本：CSS 注释里会逐字写出规则形状，
+// 现成的例子是 styles.css:906 的「钉死的 #view { padding: 12px }」。
+// blocksFor() 从第一版起就在剥（见它自己的注释），decl() 此前没剥，这个不对称
+// 由变异实验证实能造出本仓明令禁止的那类缺陷：把 styles.css:99-105 整条 #view
+// 规则删掉，43 文件 / 520 用例照样全绿 —— decl('#view','padding') 从注释里读回了 12px。
+// 改法保持保守：只喂给两个解析器，不动模块级的 css —— 另有条文断的就是含注释的原文
+// （css.includes('.trend-radar')、@media 切片、button,select 那两条正则），
+// 它们的语义是「整份文件」，跟着剥等于悄悄换掉判据。
+const cssStripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
 // 取某条规则里某个属性的值（去尾空格）。选择器与属性都要转义，否则会匹到别的规则。
 function decl(selector: string, prop: string): string | null {
-  const body = css.match(new RegExp(`${esc(selector)}\\s*\\{([^}]*)\\}`))?.[1];
+  const body = cssStripped.match(new RegExp(`${esc(selector)}\\s*\\{([^}]*)\\}`))?.[1];
   if (body === undefined) return null;
   return body.match(new RegExp(`(?:^|;)\\s*${esc(prop)}\\s*:([^;]*)`))?.[1]?.trim() ?? null;
 }
@@ -30,11 +40,10 @@ const px = (v: string | null | undefined): number => Number(v?.replace('px', '')
 
 // 某个选择器出现过的所有规则体（含分组选择器）。decl() 只认「选择器后紧跟 {」的单条规则，
 // 分组规则要看「这条属性有没有出现在任一相关块里」时必须用它。
-// 先把注释剥掉：本文件的注释紧贴在选择器前面，不剥的话 m[1] 会把注释一起吞进来，
-// 选择器列表就匹配不到精确的 '.radar-none' 这种写法。
+// 注释剥离与 decl() 共用上面那一份 cssStripped：本文件的注释紧贴在选择器前面，
+// 不剥的话 m[1] 会把注释一起吞进来，选择器列表就匹配不到精确的 '.radar-none' 这种写法。
 function blocksFor(selector: string): string[] {
-  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  return [...noComments.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+  return [...cssStripped.matchAll(/([^{}]+)\{([^}]*)\}/g)]
     .filter((m) => m[1].split(',').some((s) => s.trim() === selector))
     .map((m) => m[2]);
 }
@@ -293,6 +302,10 @@ describe('底部页签与正文避让', () => {
   });
 
   it('当前页用颜色区分，不用 opacity', () => {
+    // 基态与 .active 各钉一行（同族纪律在「打卡态改颜色不 opacity」那条 it 里也是成对的）：
+    // 只断 .active 的话，把 opacity 加到基态 .tab 上会让所有页签（含当前页）一起变淡，
+    // 等于用 opacity 抹信息，而当时全量门槛照样绿。
+    expect(decl('#tabbar .tab', 'opacity')).toBeNull();
     expect(decl('#tabbar .tab.active', 'opacity')).toBeNull();
     expect(decl('#tabbar .tab.active', 'color')).toBe('var(--focus)');
   });

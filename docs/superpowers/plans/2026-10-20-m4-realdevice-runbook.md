@@ -56,12 +56,14 @@ E:\WORK\脑力训练\focus-trainer\android\app\build\outputs\apk\debug\app-debug
 
 ## 4. 成绩真的落库了（成功标准 6 的存储面）
 
+Capacitor 的 WebView 把 IndexedDB 放在应用私有目录下的哪个子目录，我在电脑侧无法证实（不同 WebView 版本布局不同），所以**不写死路径**，改成「把私有目录整个列出来」的探测，一定跑得通：
+
 ```powershell
-& "E:\APPS\Android\Sdk\platform-tools\adb.exe" shell run-as com.focustrainer.app ls -l databases
-& "E:\APPS\Android\Sdk\platform-tools\adb.exe" shell run-as com.focustrainer.app ls -R app_webkit/ 2>$null | Select-String -Pattern "IndexedDB|\.sqlite" | Select-Object -First 10
+& "E:\APPS\Android\Sdk\platform-tools\adb.exe" shell run-as com.focustrainer.app sh -c "ls -1; echo '--- find ---'; find . -maxdepth 4 \( -name '*IndexedDB*' -o -name '*.sqlite' -o -name '*.leveldb' \) -print | head -20; echo '--- du ---'; du -sh app_* databases files 2>/dev/null"
 ```
-期望：能看到 webkit 的 IndexedDB 目录（`.../databases` 或 `app_webkit/` 下有 sqlite 文件）。debug 包才可 `run-as`。
-回报：两条命令的原样输出。
+期望：`find` 那一段出现 `.../IndexedDB/...`（或对应 sqlite/leveldb 目录），`du` 显示它非 0 字节。debug 包才可 `run-as`。
+如果 `find` 完全为空，先确认你已经按第 3 项练完并到过结算页（落库发生在结算那一刻），再把原样输出贴给我 —— 空目录本身就是重要证据。
+回报：这条命令的原样输出，外加一句「练完的那一款，重开 App 后成绩还在不在」。
 
 ## 5. 杀掉进程再开，档位/计划还在（成功标准 3 的真机版）
 

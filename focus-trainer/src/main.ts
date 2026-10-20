@@ -4,6 +4,7 @@ import { registerBackButton } from './ui/android-back';
 import type { AppContext } from './ui/context';
 import { h } from './ui/dom';
 import { renderHome } from './ui/pages/home';
+import { renderLibrary } from './ui/pages/library';
 import { renderPlay } from './ui/pages/play';
 import { renderResult } from './ui/pages/result';
 import { renderTrends } from './ui/pages/trends';
@@ -14,6 +15,8 @@ function show(route: Route, view: HTMLElement, ctx: AppContext, signal: AbortSig
   switch (route.name) {
     case 'home':
       return renderHome(view, ctx, signal);
+    case 'games':
+      return renderLibrary(view, ctx, signal);
     case 'play':
       return renderPlay(view, ctx, route.gameId, route.mode, signal);
     case 'result':

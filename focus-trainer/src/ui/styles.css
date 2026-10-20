@@ -892,6 +892,12 @@ body.training :focus-visible {
   color: var(--done);
 }
 
+/* 训练库的「练什么」：取 GameModule.ability，和趋势页雷达图的五根轴同名 */
+.plan-ability {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
 /* ===== 动效只有三处：底色过渡 240ms、单格点亮 120ms、点错抖动 200ms =====
    reduced-motion 下全部降到 0ms，且不隐藏任何信息（done 格仍转苔绿、抖动改成静止变色）。 */
 @media (prefers-reduced-motion: reduce) {

@@ -167,38 +167,20 @@ function setup(sessions: SessionRecord[] = [], plans: DayPlan[] = [], states: Ga
   const { repo, calls } = makeRepo(sessions, plans, states);
   const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4 } };
   const ac = new AbortController();
-  let hashValue = '#/trend';
-  const hashSet: string[] = [];
-  const location = {
-    get hash(): string {
-      return hashValue;
-    },
-    set hash(v: string) {
-      hashValue = v;
-      hashSet.push(v);
-    },
-  };
   vi.stubGlobal('document', {
     createElement: (tag: string) => new StubEl(tag),
     createElementNS: (_ns: string, tag: string) => new StubEl(tag),
   });
-  vi.stubGlobal('location', location);
   return {
     view,
     repo,
     ctx,
     ac,
     calls,
-    hashSet,
     render: (now = NOW): Promise<void> => renderTrends(view as unknown as HTMLElement, ctx, ac.signal, now),
     select: (): StubEl => {
       const el = view.find((x) => x.tag === 'select');
       if (!el) throw new Error('找不到 select');
-      return el;
-    },
-    button: (label: string): StubEl => {
-      const el = view.find((x) => x.tag === 'button' && x.textContent === label);
-      if (!el) throw new Error(`找不到按钮「${label}」`);
       return el;
     },
   };

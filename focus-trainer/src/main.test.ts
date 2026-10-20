@@ -581,4 +581,20 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
     // games 分支若误走首页，recorder.home 就会多出一笔而库页为空
     expect(recorder.home).toHaveLength(0);
   });
+
+  // Task 4 评审 S1 的补测：全仓没有 settings.test.ts，main.ts 也没对 renderSettings 做 vi.mock，
+  // 所以这条 boot 级用例走的是真实实现 + 内存仓库，是「设置页不再自带返回按钮」唯一的测试面。
+  // 渲染闸门用只有设置页才有的「每日分界时间」，确保断言落在真的设置页上而非任何回退首页。
+  it('#/settings 时设置页不再自带返回按钮：抬头是「设置」，页签 aria-current 恰落在一条链接上', async () => {
+    const h = setupDom('#/settings');
+    const storage = await freshStorage();
+    recorder.openIdbRepository.mockResolvedValue(new storage.MemoryRepository());
+    await importMain();
+    await vi.waitFor(() => expect(h.view.textContent).toContain('每日分界时间'), { timeout: 2000 });
+
+    expect(h.view.textContent).not.toContain('返回');
+    expect(h.view.textContent).toContain('设置');
+    const current = h.tabbar.children.filter((c) => c.attrs.get('aria-current') === 'page');
+    expect(current).toHaveLength(1);
+  });
 });

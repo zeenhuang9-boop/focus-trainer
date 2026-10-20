@@ -4,6 +4,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'play'; gameId: GameId; mode: Mode }
   | { name: 'result'; sessionId: number }
+  | { name: 'games' }
   | { name: 'trend' }
   | { name: 'settings' };
 
@@ -18,6 +19,7 @@ export function parseRoute(hash: string): Route {
     return { name: 'play', gameId: a, mode: b };
   }
   if (head === 'result' && parts.length === 2 && /^\d+$/.test(a)) return { name: 'result', sessionId: Number(a) };
+  if (head === 'games' && parts.length === 1) return { name: 'games' };
   if (head === 'trend' && parts.length === 1) return { name: 'trend' };
   if (head === 'settings' && parts.length === 1) return { name: 'settings' };
   return { name: 'home' };
@@ -27,6 +29,8 @@ export function href(r: Route): string {
   switch (r.name) {
     case 'home':
       return '#/';
+    case 'games':
+      return '#/games';
     case 'play':
       return `#/play/${r.gameId}/${r.mode}`;
     case 'result':

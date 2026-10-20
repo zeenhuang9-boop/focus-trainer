@@ -750,3 +750,161 @@ body.training :focus-visible {
   padding: 16px 0;
   text-align: center;
 }
+
+/* ===== 首页：日志本抬头 + 活体舒尔特招牌 ===== */
+.home-date {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 44px / 900 的连续天数是首页唯一的最大读数，尾句退回 16px 正文 */
+.home-streak {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.home-streak .tail {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* 招牌：卡片本身是纸片，卡内不再画坐标纸纹（纹理只在页面级出现） */
+.warmup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(22, 26, 30, 0.08);
+}
+
+.warmup-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.warmup-hint {
+  font-size: 13px;
+  color: var(--muted);
+  min-height: 20px;
+}
+
+/* 5×5 迷你格：走的是同一套「按顺序点」的量具语义，但它是首页控件、不是训练网格，
+   所以用独立类名 .warmup-grid/.warmup-cell —— 不复用 .schulte-grid，
+   免得那套 1px gap + 满宽出血的 48px 算式被卡片内边距挤掉。
+   390 排版下：390 − 24(#view) − 2(边框) − 32(卡内边距) = 332，(332 − 4×4) / 5 = 63.2px。 */
+.warmup-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  aspect-ratio: 1;
+}
+
+.warmup-cell {
+  padding: 0;
+  min-width: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--focus);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  transition: background-color 120ms linear, color 120ms linear;
+}
+
+.warmup-cell.done {
+  color: var(--card);
+  background: var(--done);
+  border-color: var(--done);
+}
+
+/* 点满 25 格后整面填充一次（200ms），再跳路由 */
+.warmup.filled .warmup-cell {
+  background: var(--done);
+  border-color: var(--done);
+  transition: background-color 200ms linear;
+}
+
+/* 点错只抖一下，不惩罚、不改数字 */
+.warmup-cell.shake {
+  animation: warmup-shake 200ms linear;
+  color: var(--bad);
+}
+
+@keyframes warmup-shake {
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+/* 今日计划的行：眉标是拉丁 id（与路由名一致），读数是等宽数字，动作是「去练」 */
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 16px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(22, 26, 30, 0.08);
+}
+
+.plan-row.done {
+  background: var(--card);
+  border-color: var(--done);
+}
+
+.plan-row.done .plan-name {
+  color: var(--muted);
+}
+
+.plan-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plan-name {
+  font-size: 16px;
+}
+
+.plan-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.plan-mark {
+  font-size: 16px;
+  color: var(--done);
+}
+
+/* ===== 动效只有三处：底色过渡 240ms、单格点亮 120ms、点错抖动 200ms =====
+   reduced-motion 下全部降到 0ms，且不隐藏任何信息（done 格仍转苔绿、抖动改成静止变色）。 */
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition-duration: 0ms;
+  }
+  .warmup-cell {
+    transition-duration: 0ms;
+  }
+  .warmup.filled .warmup-cell {
+    transition-duration: 0ms;
+  }
+  .warmup-cell.shake {
+    animation-duration: 0ms;
+  }
+}

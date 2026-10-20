@@ -1,5 +1,6 @@
 import './ui/styles.css';
 import { MemoryRepository, openIdbRepository, type Repository } from './core/storage';
+import { registerBackButton } from './ui/android-back';
 import type { AppContext } from './ui/context';
 import { h } from './ui/dom';
 import { renderHome } from './ui/pages/home';
@@ -41,7 +42,9 @@ async function boot(): Promise<void> {
   navigator.storage?.persist?.().catch((err: unknown) => console.warn('storage.persist 失败', err));
   const ctx: AppContext = { repo, storageOk, settings: await repo.getSettings() };
   let current: AbortController | null = null;
+  let currentRoute: Route = { name: 'home' };
   startRouter((route) => {
+    currentRoute = route;
     current?.abort();
     const ac = new AbortController();
     current = ac;
@@ -51,6 +54,7 @@ async function boot(): Promise<void> {
       if (!ac.signal.aborted) view.replaceChildren(h('p', null, `页面出错：${String(err)}`));
     });
   });
+  void registerBackButton(() => currentRoute);
 }
 
 boot().catch((err: unknown) => {

@@ -1,6 +1,7 @@
 import { SessionRunner, type SessionSnapshot } from '../../core/session';
 import type { GameId, GameModule, Mode, Outcome } from '../../core/types';
 import { GAMES, getGame } from '../../games/registry';
+import { EXIT_CONFIRM } from '../back-rule';
 import type { AppContext } from '../context';
 import { h } from '../dom';
 import { navigate } from '../router';
@@ -62,7 +63,7 @@ export async function renderPlay(
           navigate({ name: 'home' });
           return;
         }
-        if (confirm('退出后本次训练不保存，确定退出吗？')) navigate({ name: 'home' });
+        if (confirm(EXIT_CONFIRM)) navigate({ name: 'home' });
       },
     },
     '退出',

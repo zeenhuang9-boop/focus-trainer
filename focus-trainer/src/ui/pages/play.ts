@@ -83,6 +83,12 @@ export async function renderPlay(
 
   const gameView = game.createView(stageGame, (e) => runner.input(e));
 
+  // 深色刺激区：给 body 挂 .training，让 --bg/--panel/--line/--text/--muted/--accent 这组旧名
+  // 在训练路由里改回刺激量的取值（styles.css 的 body.training）。底色过渡（240ms）发生在
+  // 纸面 ↔ 深底之间，是浅色 chrome 与深色刺激区之间唯一的接缝处理。
+  // 只走可选链：视图测试的 DOM 桩是手写的，document.body 不存在时不该把渲染带崩。
+  document.body?.classList.toggle('training', true);
+
   function overlayShow(...nodes: HTMLElement[]): void {
     overlay.hidden = false;
     overlay.replaceChildren(...nodes);
@@ -197,6 +203,9 @@ export async function renderPlay(
     () => {
       cancelAnimationFrame(raf);
       gameView.destroy();
+      // 离开训练路由必须把深底摘掉：下一次渲染的是纸面页（首页/趋势/设置/结算），
+      // 残留 .training 会让纸面页继续吃刺激区的取值，纸色过渡也就不会发生。
+      document.body?.classList.toggle('training', false);
     },
     { once: true },
   );

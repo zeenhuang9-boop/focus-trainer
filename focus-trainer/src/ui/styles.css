@@ -1,16 +1,52 @@
+/* ── 设计 tokens：冷调坐标纸「纸质训练手册」 ─────────────────────────
+   纸是冷灰绿的坐标纸，不是暖奶油；不用衬线、不引字体文件（离线红线）。
+   9 个命名值：--paper 纸底 / --card 卡面（比纸略亮一档，「纸上放纸」）/ --ink 正文墨 /
+   --ink-2 弱字与眉标 / --rule 分隔线（灰绿，不用纯灰）/ --focus 普鲁士蓝（唯一主强调）/
+   --done 苔绿（已完成、打卡）/ --bad 砖红（只在「错」的语义上）/ --stage 深色刺激窗口。
+   旧名 --bg/--panel/--line/--text/--muted/--accent/--bad 全部保留并指向新值：视图与
+   styles.test.ts 仍按旧名取色，不许留悬空引用；深色刺激区继续由 --bg 承担。
+   块内一律不写注释：styles.test.ts 的 decl() 用「; + 空白」锚定属性，夹进来的注释行
+   会让它读不到下一条（--tap/--done-fg/--done-bg 就是这么被钉死的）。 */
 :root {
-  color-scheme: dark;
-  --bg: #14161a;
+  color-scheme: light;
+  --paper: #eef0ea;
+  --card: #fbfbf8;
+  --ink: #161a1e;
+  --ink-2: #5a6472;
+  --rule: #c9cec4;
+  --focus: #1c4f7c;
+  --done: #3f6b4a;
+  --bad: #a83c2b;
+  --stage: #10151a;
+  --bg: var(--stage);
+  --panel: var(--card);
+  --line: var(--rule);
+  --text: var(--ink);
+  --muted: var(--ink-2);
+  --accent: var(--focus);
+  --on-accent: #fbfbf8;
+  --tap: 48px;
+  --done-fg: #9aa4b2;
+  --done-bg: #191c21;
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* 深色刺激区（训练路由）：play.ts 挂载时给 body 加 .training，abort 时摘掉。
+   这一层只做两件事 —— 页面底色转深（纸纹撤掉）、把六个旧名改回改造前的取值。
+   这些取值一个都不是装饰：它们是五个游戏视图测试与 WCAG 算式里的分母。
+   块内同样不夹注释，见上面 :root 的说明。 */
+body.training {
+  --bg: var(--stage);
   --panel: #1d2026;
   --line: #2c313a;
   --text: #e8eaed;
   --muted: #9aa0a6;
   --accent: #8ab4f8;
   --bad: #f28b82;
-  --tap: 48px;
-  --done-fg: #9aa4b2;
-  --done-bg: #191c21;
-  font-family: system-ui, -apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+  --on-accent: #0b1a2e;
+  background-color: var(--bg);
+  background-image: none;
+  color: var(--text);
 }
 
 * {
@@ -25,11 +61,18 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--bg);
-  color: var(--text);
 }
 
+/* 纸底 + 5mm 量级的淡格纹：两条 repeating-linear-gradient 画坐标纸，页面级独占（卡片内不出现）。
+   纯渐变，不引任何图片或字体 —— 离线红线由 styles.test.ts 与本文件的注释块共同守：
+   样式表里出现外部地址、导入语句或字体声明就是返工。
+   background-color 的 240ms 过渡就是「翻开仪器」那条接缝：进训练路由纸色转深底。 */
 body {
+  background-color: var(--paper);
+  background-image: repeating-linear-gradient(to right, rgba(28, 79, 124, 0.06) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(to bottom, rgba(28, 79, 124, 0.06) 0 1px, transparent 1px 24px);
+  color: var(--ink);
+  transition: background-color 240ms linear;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
@@ -248,8 +291,10 @@ button:disabled {
 }
 
 /* 颜色认知：词色就是刺激本身，所以这里允许彩色出现在游戏区（spec 5.8「游戏区不用彩色装饰」
-   指的是装饰，不是刺激）。对比度按 WCAG 2.1 相对亮度实算，写在每条后面：
-   中性底 --bg #14161a 上，红 #E53935 = 4.29、绿 #43A047 = 5.48、蓝 #1E88E5 = 4.92、黄 #FDD835 = 12.98。
+   指的是装饰，不是刺激）。四色墨集、按钮底 #1d2026、反馈底一个都没动；
+   对比度按 WCAG 2.1 相对亮度实算，写在每条后面，分母是本次纲要指定的刺激窗口底 --stage #10151a：
+   红 #E53935 = 4.34、绿 #43A047 = 5.56、蓝 #1E88E5 = 4.99、黄 #FDD835 = 13.15
+   （窗口从旧的 #14161a 换到 #10151a 后四色各升 0.03–0.17，只会更清楚，不会更糊）。
    词是 clamp(56px,18vw,96px) 的大字号，走 AA-large 的 3.0，四色全过；红到不了正文的 4.5，
    所以按钮文字默认白色（白 on --panel #1d2026 = 16.32）。
    第 9/10 档的干扰色按钮文字用 22px + 700：18.66px 以上加粗即算大字号，红 on --panel = 3.86 ≥ 3.0 才达标；

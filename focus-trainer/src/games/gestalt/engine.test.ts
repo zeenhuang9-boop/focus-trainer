@@ -211,6 +211,24 @@ describe('帧间隔判定（spec §6）', () => {
     expect(withGap(1200, 10, 60).timingValid).toBe(false);
   });
 
+  it('configure 重新武装 timingValid，不作废下一轮', () => {
+    expect(withGap(600, 10, 51).timingValid).toBe(false);
+    const eng = new GestaltEngine();
+    eng.configure(1, 11, 1);
+    eng.start(0);
+    // SessionRunner 一轮 16 个试次复用同一实例，这里复用 withGap(600, 10, 51) 的节奏（F-1：整数下标算时刻）
+    for (let i = 1; ; i++) {
+      if (i === 60) eng.tick(600);
+      const t = i <= 59 ? i * 10 : i * 10 + 51;
+      eng.tick(t);
+      if (eng.snapshot().phase === 'answer') break;
+    }
+    expect(eng.snapshot().timingValid).toBe(false);
+    eng.configure(1, 11, 1);
+    eng.start(0);
+    expect(eng.snapshot().timingValid).toBe(true);
+  });
+
   it('注视期与作答期的长间隔不算（关键阶段之外不判）', () => {
     const eng = new GestaltEngine();
     eng.configure(1, 12, 1);

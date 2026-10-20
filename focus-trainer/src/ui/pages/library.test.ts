@@ -204,7 +204,11 @@ describe('训练库页', () => {
     await h.render();
     const rows = h.view.byClass('plan-row');
     expect(rows).toHaveLength(5);
-    expect(rows.map((r) => r.byClass('eyebrow')[0].textContent)).toEqual(['schulte', 'stroop', 'seqmem', 'mot', 'gestalt']);
+    // 三行都引用注册表对象本身：行内容若不是真的来自 GAMES，这里就红。
+    expect(rows.map((r) => r.byClass('eyebrow')[0].textContent)).toEqual(GAMES.map((g) => g.id));
+    expect(rows.map((r) => r.byClass('plan-name')[0].textContent)).toEqual(GAMES.map((g) => g.name));
+    expect(rows.map((r) => r.byClass('plan-ability')[0].textContent)).toEqual(GAMES.map((g) => `练${g.ability}`));
+    // 中文名再钉一份字面量：注册表被人改名时 GAMES 派生那几行会一起绿，只有这条会红，改名能被看见。
     expect(rows.map((r) => r.byClass('plan-name')[0].textContent)).toEqual(['舒尔特方格', '颜色认知', '序列记忆', '视觉动态感知', '视觉完型整合']);
   });
 
@@ -248,7 +252,9 @@ describe('训练库页', () => {
   it('这一页不带「去练」以外的按钮，也不自带返回首页的按钮', async () => {
     const h = setup();
     await h.render();
-    expect(h.view.all((e) => e.tag === 'button')).toHaveLength(5);
+    // 个数 + 标签全等：只数个数的话，按钮文案换成别的（甚至 mode 写错导致语义变了）也不会红。
+    const buttons = h.view.all((e) => e.tag === 'button');
+    expect(buttons.map((b) => b.textContent)).toEqual(['去练', '去练', '去练', '去练', '去练']);
     expect(h.view.textContent).not.toContain('返回');
   });
 });

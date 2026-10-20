@@ -32,6 +32,15 @@ describe('parseRoute', () => {
   });
 });
 
+describe('href', () => {
+  it('mode 两个取值写出两种 hash，丢掉 mode 就会被看见', () => {
+    // 逐字面量钉死字符串：回环断言（parseRoute(href(r)) === r）在 href 与 parseRoute 一起错时照样绿。
+    expect(href({ name: 'play', gameId: 'schulte', mode: 'plan' })).toBe('#/play/schulte/plan');
+    expect(href({ name: 'play', gameId: 'schulte', mode: 'free' })).toBe('#/play/schulte/free');
+    expect(href({ name: 'games' })).toBe('#/games');
+  });
+});
+
 describe('trend 路由', () => {
   it('#/trend 解析成 trend，多余段落回落 home', () => {
     expect(parseRoute('#/trend')).toEqual({ name: 'trend' });

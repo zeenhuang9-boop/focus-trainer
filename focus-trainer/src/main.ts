@@ -25,7 +25,9 @@ function show(route: Route, view: HTMLElement, ctx: AppContext, signal: AbortSig
   }
 }
 
-async function boot(): Promise<void> {
+// export 只为可测性：spec §6 第一条（IndexedDB 打开失败）必须由 main.test.ts 真的跑一遍。
+// 末尾的 boot().catch(...) 自调保持原样 —— 不改启动行为，测试靠导入即执行那一次装配。
+export async function boot(): Promise<void> {
   const banner = document.getElementById('banner') as HTMLElement;
   const view = document.getElementById('view') as HTMLElement;
   let repo: Repository;

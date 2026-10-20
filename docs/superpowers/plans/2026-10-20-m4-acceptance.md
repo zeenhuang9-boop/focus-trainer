@@ -247,7 +247,7 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 2. **历史体积数字不可互比**——同一条 `assembleDebug` 在增量与冷重打包两种模式下给出的数字不同。
 3. 一旦这条 APK 离开侧载场景（上架 / AAB / 签名发布），**先把 `packageDebug` 的增量缓存清掉再出发布包**，或改走 AAB 的可复现口径；那时体积才成为交付指标。
 
-## 13. 六条成功标准的现场审计（首审 2026-10-20 20:01；2026-10-20 23:00 复审标准 1 与 6 —— **本轮因 `src/` 分页改版重出 APK**；23:40 因 `cb69dcc` 复检标准 1 的新鲜度判据，命令全部当场重跑，不引用记忆）
+## 13. 六条成功标准的现场审计（首审 2026-10-20 20:01；2026-10-20 23:00 复审标准 1 与 6 —— **本轮因 `src/` 分页改版重出 APK**；23:40 因 `cb69dcc` 复检标准 1 的新鲜度判据；**2026-10-21 00:43 在最终 HEAD `e71ba8d` 复跑正身判据 + 门槛 + `verify:apk`，命令全部当场重跑，不引用记忆）
 
 | # | 标准 | 当场实测证据 | 等级 |
 | --- | --- | --- | --- |
@@ -256,7 +256,7 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 | 3 | 难度自动升降档且下次续上 | 真库 `[schulte, plan, 1→4, ability 25, 3 轮]`、`[stroop, 1→3, 15, 4 轮]`；整页 reload 后 `gameState` 三行不变，再进训练页标题实测「第 4 档」 | 关闭（§11） |
 | 4 | 每日 3 项计划、3 项完成即打卡、显示连续天数 | 真库 `plans` 行 `{dayKey:"2026-10-20", games:[schulte,stroop,seqmem], completed:[三者]}`；连续天数的界面实测在 M1 验收记录 | 关闭 |
 | 5 | 趋势页五维雷达 + 单游戏近 30 天曲线 + 近 5 周日历 | M3 验收记录 17 条判据全填实测原文（含雷达标签 `clipped` 为空、字号提到 14） | 关闭 |
-| 6 | `core/` 与五个 engine 纯逻辑单测全通过、关键时序按帧时间戳入试次记录 | 首审当场 `npx vitest run` = **Test Files 40 passed / Tests 472 passed**；`npx tsc --noEmit` exit 0；真库 `trials[]` 字段为 `onset/rt/correct/span/dir/taps`，`rt` 是帧时间戳口径。**本轮重出包前的门槛重跑：`npx tsc --noEmit` exit 0 + `npx vitest run` = 43 文件 / 517 用例全绿**；终审护栏修复片 `cb69dcc` 之后 23:35 再跑：**`npx tsc --noEmit` exit 0 + `npx vitest run` = 43 文件 / 520 用例全绿**（+3 是把三条跨条规则耦合绑住的护栏 —— `--nav-h` ↔ 页签实占、`[hidden]` 的 `!important`、`.training` 的加/摘；控制器逐条跑变异确认它们不是空断言：`#tabbar` 竖向 padding 6→16px 红 1/26、删 `!important` 红 1/26、`play.ts:209` 的 `toggle('training', false)`→`true` 红 1/9，`git checkout --` 还原后 `git status --porcelain` 为空、全量 520 绿）（计数原因的记录见 §14，此处不覆盖首审原值） | 关闭 |
+| 6 | `core/` 与五个 engine 纯逻辑单测全通过、关键时序按帧时间戳入试次记录 | 首审当场 `npx vitest run` = **Test Files 40 passed / Tests 472 passed**；`npx tsc --noEmit` exit 0；真库 `trials[]` 字段为 `onset/rt/correct/span/dir/taps`，`rt` 是帧时间戳口径。**本轮重出包前的门槛重跑：`npx tsc --noEmit` exit 0 + `npx vitest run` = 43 文件 / 517 用例全绿**；终审护栏修复片 `cb69dcc` 之后 23:35 再跑：**`npx tsc --noEmit` exit 0 + `npx vitest run` = 43 文件 / 520 用例全绿**（+3 是把三条跨条规则耦合绑住的护栏 —— `--nav-h` ↔ 页签实占、`[hidden]` 的 `!important`、`.training` 的加/摘；控制器逐条跑变异确认它们不是空断言：`#tabbar` 竖向 padding 6→16px 红 1/26、删 `!important` 红 1/26、`play.ts:209` 的 `toggle('training', false)`→`true` 红 1/9，`git checkout --` 还原后 `git status --porcelain` 为空、全量 520 绿）**最终 HEAD `e71ba8d` 上的收口重跑（00:42）：`npx tsc --noEmit` exit 0 + `npx vitest run` = 43 文件 / 522 用例全绿**；520→521 是 `471f2e0` 给 `#view` 四条布局承重属性各钉一条精确值断言（控制器复跑：只删 `#view` 块内 `display: flex` 一行 → `expected null to be 'flex'`，红 1/27），521→522 是 `e71ba8d` 给 `#app` 的 `min-height:100%` / `display:flex` / `flex-direction:column` + 安全区 `padding` 各钉一条（控制器复跑：`sed -i '86d'` 删掉 `styles.css:86` 的 `display: flex` 整行 → `expected null to be 'flex'`，红 1/27，还原后树干净）。两次都是「删承重声明仍然全绿」这类静默缺陷被补上护栏，不改包内字节。（计数原因的记录见 §14，此处不覆盖首审原值） | 关闭 |
 
 **审计结论**：6 条里 5 条由当场可重跑的实测支撑；唯一未证的是标准 1 的「可安装」，它需要手机在场，执行入口是 `2026-10-20-m4-realdevice-runbook.md`。
 **包内一致性另附**：`dist` 的 4 个产物与 APK 内 `assets/public/` 同名文件 **MD5 逐一相同**。本轮实测四个条目名与三方 MD5 全等：`index.html` `a047da99…`、`assets/index-BmpvXtht.js` `c557d0ec…`、`assets/index-DED0C_qq.css` `dac3d7fe…`、`assets/web-DRox84OO.js` `cc19e1a1…`（首审那轮的 `index-txlbMeE-.js` / `index-CeJy5hqz.css` / `web-BnoYLHys.js` 随 `src/` 改版换代，属正常）。
@@ -265,6 +265,8 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 **由此定下的口径（下次别再机械重跑）**：`src/` 里的新提交若**全部**落在 `**/*.test.ts`，不触发重出，改跑「在末次提交上重建 `dist`，与包内条目名 + MD5 全等」这条正身判据；一旦碰非测试的 `**/*.ts`、`index.html`、`styles.css` 或 `capacitor.config.ts`，仍旧先 `rm -f` 旧包再 `assembleDebug`，并同步本节与手册的身份行。
 
 **这条判据的复现前提（2026-10-21 00:31 当场补正，起因是自己重跑时 `index.html` 报了 DIFF）**：`index.html` 的 MD5 全等**只在 LF 检出下成立**。`core.autocrlf` 会把工作树里的 `focus-trainer/index.html` 存成 CRLF（`git ls-files --eol` 实测 `i/lf w/crlf`），`git checkout` 之后重建 `dist/index.html` 就多出 17 个 CR 字节、MD5 从 `a047da99…` 变 `bb939bd0…`，而 `sed 's/\r$//'` 剥掉 CR 后两侧**逐字节相同**（`diff` 无输出）。⇒ 以后跑这条正身判据时：三个 JS/CSS chunk 用纯字节 MD5 对照，`index.html` 必须**剥 CR 后对照**，否则会误报「包与源码不一致」并诱发一次毫无必要的重出包。
+
+**最终包身份的收口实测（2026-10-21 00:43，HEAD `e71ba8d`，标准 1）**：按上一段的口径，`cb69dcc → 2d54306 → 67f7bc5 → 471f2e0 → bf32075 → e71ba8d` 六个提交**全部**只动 `**/*.test.ts` 或 `docs/`，`git log -1 … ':(exclude,glob)**/*.test.ts'` 仍指回 `7cf5fa6` 22:55:18（早于包 22:59:33）⇒ 不触发重出。正身判据在最终 HEAD 上当场重跑：`npm run build`（`tsc --noEmit && vite build`，4 个产物，73 ms）后与 `unzip -p` 从包里取的同名文件对照 —— 三个 chunk **逐字节** MD5 全等（`c557d0ec…` / `dac3d7fe…` / `cc19e1a1…`），`index.html` 剥 CR 后全等（`a047da99…`）；`npm run verify:apk` 重跑仍是**共 13 项，失败 0 项**（含 `com.focustrainer.app` / `专注力训练` / `screenOrientation = 1 (PORTRAIT)` / `CN=Android Debug` 签名有效 / 无外部 origin / 相对路径引用）。⇒ **`android/app/build/outputs/apk/debug/app-debug.apk` = 4,157,235 B @ 2026-10-20 22:59:33 就是最终包**，未经再次重出、mtime 与体积数字全部原样，真机手册 `1b6882b` 那行被验包身份继续正确，不需同步。
 
 **本文件不构成标准 1 已关闭的宣告。**
 

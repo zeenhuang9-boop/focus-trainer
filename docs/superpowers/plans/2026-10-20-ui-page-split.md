@@ -267,7 +267,10 @@ git commit -m "feat(ui): 路由加 games 分支，页签表与隐藏规则抽成
 **Files:**
 - Create: `focus-trainer/src/ui/pages/library.ts`
 - Create: `focus-trainer/src/ui/pages/library.test.ts`
+- Modify: `focus-trainer/src/main.ts:13-26`（补 `games` 分支）
 - Modify: `focus-trainer/src/ui/styles.css`（只在文件末尾追加 `.plan-ability` 一条规则，别碰已有块）
+
+> **2026-10-20 计划更正（Task 1 落地后发现的计划缺陷，不是实现缺陷）**：`main.ts` 的 `show()` 是对 `route.name` 穷尽、无 `default` 的 switch，Task 1 给 `Route` 加 `games` 分支后它必然缺一支，`npx tsc --noEmit` 当场红在 `src/main.ts(13,87) TS2366 Function lacks ending return statement`（已复现）。原计划把接线放在 Task 3，会让 Task 1 收尾的 `tsc && vitest` 门槛红一片。裁定：**`show()` 的 `games` 分支并入本片**（谁创建 `library.ts` 谁负责把它接进去，tsc 在同一片转绿），Task 3 缩成「纯页签外壳接线」。
 
 **Interfaces:**
 - Consumes: `GAMES`、`getGame(id)`（`src/games/registry.ts`）、`AppContext`（`src/ui/context.ts`）、`h`（`src/ui/dom.ts`）、`navigate`（`src/ui/router.ts`）、`GameModule.ability` / `.maxLevel` / `.roundsPerSession`（`src/core/types.ts:61-75`）、`Repository.listGameStates()`（`src/core/storage.ts`，首页 `home.ts:86` 已在用）。
@@ -419,16 +422,34 @@ Expected: PASS。
 }
 ```
 
-- [ ] **Step 6: 全量门槛**
+- [ ] **Step 6: 把 `games` 接进 `main.ts` 的 `show()`（本片的 tsc 门槛靠这一步转绿）**
+
+`focus-trainer/src/main.ts` 的 import 区加一行（放在 `renderHome` 之后，与 `TABS` 顺序一致）：
+
+```ts
+import { renderLibrary } from './ui/pages/library';
+```
+
+`show()` 的 `switch` 里，`case 'home':` 之后加：
+
+```ts
+    case 'games':
+      return renderLibrary(view, ctx, signal);
+```
+
+Run: `npx tsc --noEmit`
+Expected: 退出 0、无输出。这一步之前它必红在 `src/main.ts(13,87) TS2366`。
+
+- [ ] **Step 7: 全量门槛**
 
 Run: `npx tsc --noEmit && npx vitest run`
 Expected: tsc 退出 0；vitest 全绿（用例数只增不减，以实际输出为准）。
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add focus-trainer/src/ui/pages/library.ts focus-trainer/src/ui/pages/library.test.ts focus-trainer/src/ui/styles.css
-git commit -m "feat(ui): 训练库页收走五款自由练，行语法沿用首页计划行"
+git add focus-trainer/src/ui/pages/library.ts focus-trainer/src/ui/pages/library.test.ts focus-trainer/src/main.ts focus-trainer/src/ui/styles.css
+git commit -m "feat(ui): 训练库页收走五款自由练，并接进路由壳"
 ```
 
 ---
@@ -440,11 +461,12 @@ git commit -m "feat(ui): 训练库页收走五款自由练，行语法沿用首�
 - Modify: `focus-trainer/capacitor.config.ts:8`（`backgroundColor` 还留着改版前的深底 `#14161a`，纸底应用冷启动会闪一下深色 —— 第一轮美化漏掉的，本片补上）
 - Modify: `focus-trainer/src/main.ts:13-26`、`:48-58`
 - Modify: `focus-trainer/src/main.test.ts:172`（桩的 `byId` 要能取到 `tabbar`）
+- Modify: `focus-trainer/src/ui/nav.test.ts`（只改一处用例标题的措辞，见 Step 6 末尾）
 - Modify: `focus-trainer/src/ui/styles.css`（`:root` 加 `--nav-h`、末尾追加页签规则、`#view` 的避让另起一条）
 - Modify: `focus-trainer/src/ui/styles.test.ts`（追加页签护栏）
 
 **Interfaces:**
-- Consumes: `renderNav(root, route)`（Task 1）、`renderLibrary(view, ctx, signal)`（Task 2）、`startRouter`（`src/ui/router.ts:51`）。
+- Consumes: `renderNav(root, route)`（Task 1）、`renderLibrary` 已在 `main.ts` 的 `show()` 里接好（Task 2）、`startRouter`（`src/ui/router.ts:51`）。
 - Produces: 真机上一路可见的底部页签；`index.html` 的 `theme-color` 与 `capacitor.config.ts` 的 `backgroundColor` 都跟纸底同步。
 
 - [ ] **Step 1: 先写 CSS 文本护栏（失败测试）**
@@ -569,19 +591,11 @@ Expected: PASS。
 
 同一片里把 `focus-trainer/capacitor.config.ts:8` 的 `backgroundColor: '#14161a'` 改成 `backgroundColor: '#eef0ea'` —— 第一轮美化把页面转成纸底时没动它，Android 侧 WebView 的底色还停在深色，冷启动与过度滚动时会闪一块深色补丁。这一句要过 `npx cap sync android` 才落进原生工程，Task 6 的 Step 1 已经排了 sync。
 
-- [ ] **Step 5: `main.ts` 接线**
+- [ ] **Step 5: `main.ts` 接页签**
 
-`show()` 的 `switch` 里加 `games` 分支（放在 `home` 之后，与 `TABS` 的顺序一致）：
-
-```ts
-    case 'games':
-      return renderLibrary(view, ctx, signal);
-```
-
-import 区加：
+`games` 分支已由 Task 2 接好，本片只导航入壳。import 区加：
 
 ```ts
-import { renderLibrary } from './ui/pages/library';
 import { renderNav } from './ui/nav';
 ```
 
@@ -605,7 +619,28 @@ import { renderNav } from './ui/nav';
   const byId: Record<string, StubEl> = { banner, view, tabbar: new StubEl('nav') };
 ```
 
-并在该文件里已有 `boot()` 断言的位置（`src/main.test.ts` 的 `describe('boot() …')` 组内，取现有用例同款 `setup(initialHash)` 写法）补两条：`#/` 时 `byId.tabbar.hidden === false` 且 `tabbar.children` 有 4 个、其中恰一个 `attrs.get('aria-current') === 'page'`；`#/play/schulte/plan` 时 `hidden === true` 且 `children` 为空。桩里取 `tabbar` 要走 `byId`（`getElementById` 就是它），别新造一个变量，否则断言的是桩不是产品。
+并在该文件里已有 `boot()` 断言的位置（`src/main.test.ts` 的 `describe('boot() …')` 组内，取现有用例同款 `setup(initialHash)` 写法）补三条：
+
+1. `#/` 时 `tabbar.hidden === false` 且 `tabbar.children` 有 4 个、其中恰一个 `attrs.get('aria-current') === 'page'`；
+2. `#/play/schulte/plan` 时 `hidden === true` 且 `children` 为空；
+3. **（T2 评审带出的补测，本片唯一能堵住 `main.ts:18-19` 那条不可证伪实现行的办法）** `#/games` 时 `show()` 真的走到训练库那一支。做法与该文件 `:33-40` 已有的 renderHome 记录通道同构 —— 给 `./ui/pages/library` 也开一条只记一笔实参、真实实现照常跑的 mock：
+
+```ts
+vi.mock('./ui/pages/library', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ui/pages/library')>();
+  return {
+    ...actual,
+    renderLibrary: (view: HTMLElement, ctx: AppContext, signal: AbortSignal): Promise<void> => {
+      recorder.library.push({ view, ctx, signal });
+      return actual.renderLibrary(view, ctx, signal);
+    },
+  };
+});
+```
+
+`recorder` 是 `vi.hoisted` 里造的，把 `library: [] as Array<{ view: HTMLElement; ctx: AppContext; signal: AbortSignal }>` 加进去即可。用例：`setup('#/games')` 跑完一帧后断 `recorder.library` 恰有 1 条、其 `ctx.storageOk === true`、`signal` 是当次路由的 `AbortSignal`，并且 `view.byClass('plan-row')` 有 5 个、`tabbar` 的 `aria-current` 落在「库」上。**为什么必须是这条**：`renderHome` 有第 4 个带默认值的形参，把 `show()` 里的 `renderLibrary` 误写成 `renderHome(view, ctx, signal)` 时 tsc 与全部 509 用例都仍是绿的。
+
+第 1 片修复轮遗留的一条措辞缺陷也在本片顺手改掉：`src/ui/nav.test.ts` 里 `it('四种非常驻路由都走隐藏入口')` 实际只循环 3 个入口（2 种 `play` + 1 个 `result`），标题与内容不符 —— 把标题改成「三条非常驻路由都走隐藏入口」。这条只改字符串，不许动断言。
 
 Run: `npx vitest run src/main.test.ts`
 Expected: 先 FAIL（找不到 `./ui/nav` 的导出或 `tabbar` 为 null），补完桩与代码后 PASS。

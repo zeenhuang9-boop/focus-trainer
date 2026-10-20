@@ -4,3 +4,10 @@ coverage/
 *.local
 .DS_Store
 npm-debug.log*
+
+# Capacitor 原生工程：构建产物与本机 SDK 路径不入库
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/public/
+android/local.properties

@@ -81,7 +81,9 @@ export class GestaltEngine implements GameEngine<GestaltSnapshot> {
     this.roundNo = roundNo;
     this.lv = lv;
     this.trial = trial;
-    this.fragments = frag.segments;
+    // spec:155 碎片化 = 保留段 + n 段噪声，两段都已在构建器里按 θ 旋转。
+    // 噪声是曝光期画面的一部分，必须与保留段一起进快照（构建器返回顺序：保留在前、噪声在后）。
+    this.fragments = [...frag.segments, ...frag.noise];
     this.maskSegs = mask;
     this.choiceViews = choices;
     // 作废契约（spec 5.1）：SessionRunner.voidCurrentRound() 不通知引擎，重开只调 configure + start。
@@ -174,7 +176,9 @@ export class GestaltEngine implements GameEngine<GestaltSnapshot> {
     const end = this.endAt ?? this.now;
     return {
       phase: this.phase,
-      elapsedMs: this.roundStartAt === 0 ? 0 : Math.max(0, end - this.roundStartAt),
+      // 与舒尔特同口径（schulte/engine.ts:112）：不做 0 哨兵，start(0) 的轮次也要走真实用时；
+      // 只允许这一处 Math.max(0, …)，不夹取负值/NaN 以外的时钟差（裁定 N-5）。
+      elapsedMs: Math.max(0, end - this.roundStartAt),
       fragments: inExposure ? this.fragments.slice() : [],
       mask: inMask ? this.maskSegs.slice() : [],
       choices: showChoices ? this.choiceViews.slice() : [],

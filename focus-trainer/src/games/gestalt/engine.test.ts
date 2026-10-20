@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { createRng } from '../../core/rng';
 import type { InputEvent } from '../../core/types';
-import { GESTALT_CHOICE_COUNT } from './rules';
+import { buildFigure } from './figures';
+import { fragmentFigure } from './fragment';
+import { GESTALT_CHOICE_COUNT, buildTrialSpec, gestaltLevel, rotationDeg } from './rules';
 import { FEEDBACK_MS, FIXATION_MS, MASK_MS, GestaltEngine, type GestaltSnapshot } from './engine';
 
 const step = (eng: GestaltEngine, from: number, to: number, dt: number): number[] => {
@@ -341,5 +344,54 @@ describe('整轮结算与纪律', () => {
         expect(x.snaps[i]).toEqual(y.snaps[i]);
       }
     }
+  });
+});
+
+describe('M2 评审修复：曝光内容与计时契约', () => {
+  it('spec:155 碎片化 = 保留段 + 噪声段：曝光期快照必须同时含两段（Critical 1）', () => {
+    // 复现 configure(level, seed, roundNo) 的 rng 消耗顺序，得到同 level+seed 的构建器参照
+    const lv = gestaltLevel(6);
+    const rng = createRng(42);
+    const trial = buildTrialSpec(rng, lv);
+    const rotation = rotationDeg(rng, lv.rotation);
+    const frag = fragmentFigure(buildFigure(trial.target), rng, {
+      retention: lv.retention,
+      noise: lv.noise,
+      rotationDeg: rotation,
+    });
+    // 防空转：档 6 的噪声 n=20，参照本身必须含噪声段
+    expect(lv.noise).toBeGreaterThan(0);
+    expect(frag.noise).toHaveLength(lv.noise);
+
+    const eng = new GestaltEngine();
+    eng.configure(6, 42, 1);
+    eng.start(0);
+    eng.tick(500); // 注视期满的第一帧进入暴露期
+    const s = eng.snapshot();
+    expect(s.phase).toBe('exposure');
+    // 数量断言只有把噪声一起暴露才成立
+    expect(s.fragments).toHaveLength(frag.segments.length + frag.noise.length);
+    // 内容与顺序按构建器返回：保留段在前、噪声段在后
+    expect(s.fragments).toEqual([...frag.segments, ...frag.noise]);
+  });
+
+  it('start(0) 的整轮：elapsedMs 走真实帧用时，不被 roundStartAt === 0 哨兵钉死（Critical 2）', () => {
+    const eng = new GestaltEngine();
+    eng.configure(1, 7, 1);
+    eng.start(0);
+    // F-1：整数下标推帧，不做浮点累加
+    const from = 10;
+    const to = 1300;
+    const stepMs = 10;
+    const n = Math.floor((to - from) / stepMs);
+    for (let i = 0; i <= n; i++) eng.tick(from + i * stepMs);
+    expect(eng.snapshot().phase).toBe('answer');
+    expect(eng.snapshot().elapsedMs).toBe(1300);
+    // 作答并走完反馈期到 done：elapsedMs 仍是真实用时而不是 0
+    eng.input(answer(eng, 0, 1400));
+    eng.tick(1400 + FEEDBACK_MS);
+    const done = eng.snapshot();
+    expect(done.phase).toBe('done');
+    expect(done.elapsedMs).toBe(1400 + FEEDBACK_MS);
   });
 });

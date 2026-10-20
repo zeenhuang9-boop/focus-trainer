@@ -4,23 +4,28 @@ import { GAMES, getGame } from './registry';
 import { SchulteEngine, type SchulteSnapshot } from './schulte/engine';
 import { StroopEngine } from './stroop/engine';
 import type { StroopSnapshot } from './stroop/engine';
+import { SeqmemEngine } from './seqmem/engine';
+import { MotEngine } from './mot/engine';
+import { GestaltEngine } from './gestalt/engine';
 
 describe('registry', () => {
-  it('M2-1 注册舒尔特与颜色认知，id 都在 GAME_IDS 里', () => {
-    expect(GAMES.map((g) => g.id)).toEqual(['schulte', 'stroop']);
+  it('M2 注册全部五个游戏，id 都在 GAME_IDS 里', () => {
+    expect(GAMES.map((g) => g.id)).toEqual(['schulte', 'stroop', 'seqmem', 'mot', 'gestalt']);
     expect(GAMES.every((g) => GAME_IDS.includes(g.id))).toBe(true);
     // 保序子序列：注册顺序必须等于 GAME_IDS 的声明顺序
     expect(GAMES.map((g) => g.id)).toEqual(GAME_IDS.filter((id) => GAMES.some((g) => g.id === id)));
   });
 
-  it('按 id 查找，未实现或未知的 id 返回 undefined', () => {
+  it('按 id 查找，只有未知 id 返回 undefined', () => {
     expect(getGame('schulte')?.name).toBe('舒尔特方格');
     expect(getGame('stroop')?.name).toBe('颜色认知');
-    expect(getGame('seqmem')).toBeUndefined();
+    expect(getGame('seqmem')?.name).toBe('序列记忆');
+    expect(getGame('mot')?.name).toBe('视觉动态感知');
+    expect(getGame('gestalt')?.name).toBe('视觉完型整合');
     expect(getGame('nope')).toBeUndefined();
   });
 
-  it('两个模块的元数据都符合 spec', () => {
+  it('五个模块的元数据都符合 spec', () => {
     const s = getGame('schulte')!;
     expect(s).toMatchObject({
       ability: '持续注意',
@@ -37,10 +42,42 @@ describe('registry', () => {
       roundBreak: 'tap',
       staircase: { upAfter: 1, downAfter: 1 },
     });
+    // 以下三组取值逐个读自 src/games/<id>/index.ts，并与各计划 Task 7/8 的「模块参数」段核对过
+    const q = getGame('seqmem')!;
+    expect(q).toMatchObject({
+      ability: '工作记忆',
+      maxLevel: 10,
+      roundsPerSession: 3,
+      roundBreak: 'tap',
+      staircase: { upAfter: 1, downAfter: 1 },
+    });
+    const m = getGame('mot')!;
+    expect(m).toMatchObject({
+      ability: '动态感知',
+      maxLevel: 10,
+      roundsPerSession: 8,
+      roundBreak: 'auto',
+      staircase: { upAfter: 2, downAfter: 1 },
+    });
+    const g = getGame('gestalt')!;
+    expect(g).toMatchObject({
+      ability: '完型整合',
+      // 完型整合是 12 档表（rules.ts:23-36），不是其余四款的 10 档
+      maxLevel: 12,
+      roundsPerSession: 16,
+      roundBreak: 'auto',
+      staircase: { upAfter: 2, downAfter: 1 },
+    });
     expect(s.instructions.length).toBeGreaterThan(0);
     expect(c.instructions.length).toBeGreaterThan(0);
+    expect(q.instructions.length).toBeGreaterThan(0);
+    expect(m.instructions.length).toBeGreaterThan(0);
+    expect(g.instructions.length).toBeGreaterThan(0);
     expect(s.createEngine()).toBeInstanceOf(SchulteEngine);
     expect(c.createEngine()).toBeInstanceOf(StroopEngine);
+    expect(q.createEngine()).toBeInstanceOf(SeqmemEngine);
+    expect(m.createEngine()).toBeInstanceOf(MotEngine);
+    expect(g.createEngine()).toBeInstanceOf(GestaltEngine);
   });
 
   it('每个模块都能被 SessionRunner 用三参数 configure 驱动', () => {

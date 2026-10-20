@@ -362,7 +362,12 @@ describe('renderPlay 的时钟契约', () => {
     const [record] = await h.repo.listSessions();
     // 计划项必须全部来自注册表：换成 GAME_IDS 会把进不去的游戏写进 DayPlan.games，
     // isPlanComplete 从此恒 false、streak 恒 0
-    expect(await h.repo.getPlan(EPOCH_DAY)).toMatchObject({ games: ['schulte', 'stroop'], completed: ['schulte'] });
+    // 注册表已满五个，但 DayPlan.games 恒被 scheduler 的 PLAN_SIZE=3 截断（scheduler.ts:10,27），
+    // 所以这里断的是「GAMES 前三项」而不是五个 id —— 五个都没打过，tie-break 走 GAME_IDS.indexOf。
+    expect(await h.repo.getPlan(EPOCH_DAY)).toMatchObject({
+      games: ['schulte', 'stroop', 'seqmem'],
+      completed: ['schulte'],
+    });
     expect(record.startedAt).toBe(EPOCH);
     expect(record.dayKey).toBe(EPOCH_DAY);
     expect(record.durationMs).toBe(lastClick - begins[0]);
@@ -483,7 +488,11 @@ describe('renderPlay 的时钟契约', () => {
 
   it('游戏未注册时先返回首页，不读库也不渲染', async () => {
     const h = setup();
-    await expect(h.render('seqmem')).resolves.toBeUndefined();
+    // M2 之后 GAME_IDS 的五个 id 全部注册了，play.ts:33-37 的兜底分支再也拿不到合法的 GameId
+    // 样本，所以这里用注册表外的合成 id（K9 从 'stroop'→'seqmem' 的下一跳）。
+    // 这条断言守的是「路由进来一个注册表里没有的 id 时不读库、不渲染、静默回首页」，
+    // 删掉它就等于把 play.ts 的判空分支变成无人看守的死代码。
+    await expect(h.render('nope' as unknown as GameId)).resolves.toBeUndefined();
     expect(h.replaceState).toHaveBeenCalledTimes(1);
     expect(h.replaceState).toHaveBeenCalledWith(null, '', '#/');
     expect(h.getGameState).not.toHaveBeenCalled();

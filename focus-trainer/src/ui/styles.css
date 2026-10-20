@@ -237,3 +237,285 @@ button:disabled {
 .schulte-cell.flash {
   background: #b3261e;
 }
+
+/* 颜色认知：词色就是刺激本身，所以这里允许彩色出现在游戏区（spec 5.8「游戏区不用彩色装饰」
+   指的是装饰，不是刺激）。对比度按 WCAG 2.1 相对亮度实算，写在每条后面：
+   中性底 --bg #14161a 上，红 #E53935 = 4.29、绿 #43A047 = 5.48、蓝 #1E88E5 = 4.92、黄 #FDD835 = 12.98。
+   词是 clamp(56px,18vw,96px) 的大字号，走 AA-large 的 3.0，四色全过；红到不了正文的 4.5，
+   所以按钮文字默认白色（白 on --panel #1d2026 = 16.32）。
+   第 9/10 档的干扰色按钮文字用 22px + 700：18.66px 以上加粗即算大字号，红 on --panel = 3.86 ≥ 3.0 才达标；
+   如果以后把 .stroop-choice 的字号调到 18px 以下，就必须换回白字。
+   反馈底色是 ≤200ms 的瞬时状态：白 on #1e2b22 = 13.16、白 on #2b1e1e = 11.95，
+   红 on #2b1e1e = 3.65、绿 on #1e2b22 = 3.61 只走 AA-large，够用但不当正文用。 */
+.stroop {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.stroop-rule {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.stroop-word {
+  --ink: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  font-size: clamp(56px, 18vw, 96px);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.stroop-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: min(100%, 420px);
+}
+
+.stroop-choice {
+  --ink: #ffffff;
+  min-height: 64px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.stroop-choice.right {
+  border-color: #43a047;
+  background: #1e2b22;
+}
+
+.stroop-choice.wrong {
+  border-color: #b3261e;
+  background: #2b1e1e;
+}
+
+.stroop-choice.locked {
+  opacity: 0.75;
+}
+
+.stroop-info {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.seqmem {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.seqmem-info {
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.seqmem-grid {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 520px);
+  margin: 0 auto;
+  aspect-ratio: 1;
+}
+
+.seqmem-cell {
+  background: #22262d;
+  border: none;
+  border-radius: 10px;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  font-size: clamp(12px, 3vw, 16px);
+  color: #3a4048;
+}
+
+.seqmem-cell.picked {
+  background: #2f3b4d;
+  color: var(--accent);
+}
+
+.seqmem-cell.lit {
+  background: #e0a300;
+  color: #14161a;
+}
+
+.seqmem-cell.wrong {
+  background: #b3261e;
+  color: #ffffff;
+}
+
+/* ---------------- mot 视觉动态感知 ---------------- */
+/* spec §5.8：游戏区不用彩色装饰。全场只有 #e8edf2 白点与提示期的橙色，
+   反馈色（绿/红）只在 feedback 相位出现 1 秒。 */
+.mot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mot-info {
+  min-height: 20px;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+  color: #8b98a5;
+  font-variant-numeric: tabular-nums; /* 倒计时跳动不推挤布局 */
+}
+
+/* 必须是正方形：.mot-dot 的百分比 margin 按「包含块宽度」解析，
+   只有 aspect-ratio: 1 时才与垂直方向等值，圆心对齐才成立。 */
+.mot-field {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #12181e;
+  touch-action: none; /* 阻止拖动页面与双指缩放吃掉 pointerdown */
+}
+
+/* width/height 7% = 2 × DOT_R；margin -3.5% 把圆心搬到 translate3d 的落点上 */
+.mot-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 7%;
+  height: 7%;
+  margin-left: -3.5%;
+  margin-top: -3.5%;
+  border-radius: 50%;
+  background: #e8edf2;
+  will-change: transform;
+}
+
+.mot-dot.target {
+  background: #ff8c1a;
+  animation: mot-blink 400ms steps(2, jump-none) infinite;
+}
+
+/* 提示结束后立刻停闪：class 由快照的相位驱动，视图里没有任何计时器 */
+.mot-field.motion .mot-dot.target,
+.mot-field.answer .mot-dot.target {
+  animation: none;
+  background: #e8edf2;
+}
+
+.mot-dot.sel {
+  box-shadow: 0 0 0 3px #4ea1ff;
+}
+
+.mot-dot.hit {
+  animation: none;
+  background: #2ecc71;
+}
+
+.mot-dot.wrong {
+  animation: none;
+  background: #e74c3c;
+}
+
+/* 漏选的目标：spec 没规定，本计划补成空心绿圈，让用户看清「该追的点跑哪去了」 */
+.mot-dot.missed {
+  animation: none;
+  background: transparent;
+  box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.55);
+}
+
+@keyframes mot-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ── 视觉完型整合 ───────────────────────────────── */
+.gestalt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.gestalt-info {
+  min-height: 20px;
+  color: #8b97a3;
+  font-size: 14px;
+  text-align: center;
+}
+
+.gestalt-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  place-items: center;
+  background: #141a20;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 碎片 / 掩蔽场：单独占满整个 stage，不参与 2×2 网格 */
+.gestalt-stage > .gestalt-svg,
+.gestalt-stage > .gestalt-fixation {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
+.gestalt-svg {
+  width: 92%;
+  height: 92%;
+}
+
+.gestalt-seg {
+  fill: none;
+  stroke: #d7dee6;
+  stroke-width: 0.028;
+  stroke-linecap: round;
+}
+
+.gestalt-fixation {
+  color: #6d7883;
+  font-size: 40px;
+  line-height: 1;
+  user-select: none;
+}
+
+.gestalt-choice {
+  width: 100%;
+  height: 100%;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid #232c35;
+  border-radius: 10px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.gestalt-choice .gestalt-seg {
+  stroke: #c3ccd5;
+  stroke-width: 0.035;
+}
+
+.gestalt-choice.right {
+  border: 2px solid #eef3f8;
+}
+
+.gestalt-choice.wrong {
+  border: 1px dashed #4a5560;
+  opacity: 0.4;
+}

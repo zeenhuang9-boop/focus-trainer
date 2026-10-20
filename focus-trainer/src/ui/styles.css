@@ -8,6 +8,8 @@
   --accent: #8ab4f8;
   --bad: #f28b82;
   --tap: 48px;
+  --done-fg: #9aa4b2;
+  --done-bg: #191c21;
   font-family: system-ui, -apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
 }
 
@@ -210,11 +212,12 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* 满宽 + 2px 间距：360px 屏上 7×7 每格 49.7px，390px 屏上 54.0px */
 .schulte-grid {
   display: grid;
-  gap: 4px;
-  width: min(100%, 520px);
-  margin: 0 auto;
+  gap: 2px;
+  width: calc(100% + 24px);
+  margin: 0 -12px;
   aspect-ratio: 1;
 }
 
@@ -230,8 +233,10 @@ button:disabled {
   font-weight: 600;
 }
 
+/* 完成格要「更暗但读得出」：opacity 会把数字一起抹掉，所以改用一对专用颜色 */
 .schulte-cell.done {
-  opacity: 0.2;
+  color: var(--done-fg);
+  background: var(--done-bg);
 }
 
 .schulte-cell.flash {
@@ -518,4 +523,103 @@ button:disabled {
 .gestalt-choice.wrong {
   border: 1px dashed #4a5560;
   opacity: 0.4;
+}
+
+/* ===== M3 趋势页 ===== */
+
+.trend-radar svg,
+.trend-curve svg,
+.trend-calendar svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.radar-ring,
+.radar-axis,
+.curve-axis {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.radar-area {
+  fill: rgba(138, 180, 248, 0.22);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.radar-label,
+.radar-none,
+.curve-edge {
+  fill: var(--muted);
+  font-size: 12px;
+  text-anchor: middle;
+}
+
+.curve-edge {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 末点标签锚在 x=312，不改成 end 就会溢出 320 的 viewBox（桩测只读 fullText，测不到） */
+.curve-edge.edge-end {
+  text-anchor: end;
+}
+
+.curve-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.curve-dot {
+  fill: var(--accent);
+}
+
+.calendar-cell {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.calendar-cell.none {
+  fill: var(--panel);
+}
+
+.calendar-cell.partial {
+  fill: #3d4a63;
+}
+
+.calendar-cell.done {
+  fill: var(--accent);
+}
+
+.radar-legend {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.radar-legend li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  padding: 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.curve-host {
+  margin-top: 8px;
+}
+
+.trend-empty {
+  color: var(--muted);
+  padding: 16px 0;
+  text-align: center;
 }

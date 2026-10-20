@@ -264,6 +264,8 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 **23:40 新鲜度复检（`cb69dcc` 之后，标准 1）**：`cb69dcc` 23:31:03 把 `git log -1 --format=%cd -- focus-trainer/src` 推到了 APK mtime 22:59:33 **之后**（该提交只动 `src/main.test.ts` 与 `src/ui/styles.test.ts`，+64 −1），所以本节第一行「包晚于最后一次 `src/` 提交」这条**机械判据当场不成立**。裁定：那条是代理，正身是「包内负载 == 最终 `src/` 构建出来的字节」，故用两条可证伪的实测替代重出包 —— ① 就在 `cb69dcc` 上重跑 `npm run build`（`tsc --noEmit && vite build`，56 modules transformed，71 ms），`dist` 四个产物的**条目名与 MD5 与上面「包内一致性」那行逐字全等**（`a047da99…` / `c557d0ec…` / `dac3d7fe…` / `cc19e1a1…`），Vite 的 content hash 没变意味着构建输入也没变；② 反向探针：`unzip -p` 从包里取 `assets/public/assets/index-BmpvXtht.js`（79,304 B），对 `cb69dcc` 新增的三条用例标题（`不小于页签自己的实占` / `进训练给 body 挂` / `结算页页签唯一的承重点`）命中 **0** 次，而同一条产物对正控 `训练库` 与 `aria-current` 各命中 1 次 ⇒ `*.test.ts` 确实不进包。**结论：无需重出 APK**，22:59:33 那份仍是最终包，真机手册的被验包身份行不变。
 **由此定下的口径（下次别再机械重跑）**：`src/` 里的新提交若**全部**落在 `**/*.test.ts`，不触发重出，改跑「在末次提交上重建 `dist`，与包内条目名 + MD5 全等」这条正身判据；一旦碰非测试的 `**/*.ts`、`index.html`、`styles.css` 或 `capacitor.config.ts`，仍旧先 `rm -f` 旧包再 `assembleDebug`，并同步本节与手册的身份行。
 
+**这条判据的复现前提（2026-10-21 00:31 当场补正，起因是自己重跑时 `index.html` 报了 DIFF）**：`index.html` 的 MD5 全等**只在 LF 检出下成立**。`core.autocrlf` 会把工作树里的 `focus-trainer/index.html` 存成 CRLF（`git ls-files --eol` 实测 `i/lf w/crlf`），`git checkout` 之后重建 `dist/index.html` 就多出 17 个 CR 字节、MD5 从 `a047da99…` 变 `bb939bd0…`，而 `sed 's/\r$//'` 剥掉 CR 后两侧**逐字节相同**（`diff` 无输出）。⇒ 以后跑这条正身判据时：三个 JS/CSS chunk 用纯字节 MD5 对照，`index.html` 必须**剥 CR 后对照**，否则会误报「包与源码不一致」并诱发一次毫无必要的重出包。
+
 **本文件不构成标准 1 已关闭的宣告。**
 
 ---

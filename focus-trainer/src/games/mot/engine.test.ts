@@ -202,8 +202,12 @@ describe('answer 阶段的点选', () => {
     e.input({ kind: 'point', x: gap.x, y: gap.y, t: START + 9048 }); // 容差外的空点
     expect(e.snapshot().selectedCount).toBe(0);
     tap(1, START + 9064);
+    expect(e.snapshot().selectedCount).toBe(1);
     tap(3, START + 9080);
-    expect(e.snapshot().selectedCount).toBe(2); // 选满 K 之后仍能改选（自动提交是 Task 5 的行为）
+    // Task 5 落地后语义变了：选满 K 当场自动提交，「改选窗口」在凑满 K 的那一瞬间关闭，
+    // 相位同时进 feedback（原注释「选满 K 之后仍能改选」描述的是 Task 4 的半成品行为）。
+    expect(e.snapshot().selectedCount).toBe(2);
+    expect(e.snapshot().phase).toBe('feedback');
   });
 
   it('target 只在 prompt / feedback 暴露：运动与作答阶段的快照全是 false', () => {

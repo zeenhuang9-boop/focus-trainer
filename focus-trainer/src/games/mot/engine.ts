@@ -1,8 +1,8 @@
 // focus-trainer/src/games/mot/engine.ts
 import { createRng } from '../../core/rng';
 import type { Rng } from '../../core/rng';
-import type { InputEvent } from '../../core/types';
-import { MAX_FRAME_INTERVAL_MS, MOT_LEVELS, PROMPT_MS, motLevel } from './rules';
+import type { GameEngine, InputEvent, RoundResult } from '../../core/types';
+import { FEEDBACK_MS, MAX_FRAME_INTERVAL_MS, MOT_LEVELS, PROMPT_MS, motLevel } from './rules';
 import type { MotLevel } from './rules';
 import { STEPS_PER_SECOND, frameSteps, hitTest, spawnDots, stepOnce } from './physics';
 import type { DotState } from './physics';
@@ -30,9 +30,13 @@ export interface MotSnapshot {
   readonly done: boolean;
 }
 
-// 本 Task 起 MotEngine 还只是「一个类」；Task 5 补上 result() 之后才声明
-// implements GameEngine<MotSnapshot>，index.ts 也才可能引用它。
-export class MotEngine {
+// Task 5 起补齐 result() 与自动提交/反馈相位，本类才成为真正的 GameEngine：
+// index.ts 从这里才能把 new MotEngine() 交给 SessionRunner。
+export class MotEngine implements GameEngine<MotSnapshot> {
+  // level / seed 只在 result() 回填 RoundResult 时被读（Task 4 里它们是只写不读的死状态，
+  // 本 Task 变成判分记录的一部分：同 (level, seed) 必须能复现出同一份 result）。
+  private level = 1;
+  private seed = 0;
   private lv: MotLevel = MOT_LEVELS[0];
   private rng: Rng = createRng(0);
   private dots: DotState[] = [];
@@ -47,11 +51,15 @@ export class MotEngine {
   private steps = 0;
   private timingValid = true;
   private endAt: number | null = null;
+  private submitAt: number | null = null;
+  private feedbackEndAt = 0;
 
   // 形参与 GameEngine.configure 逐字一致。roundNo 与舒尔特同口径：只是 SessionRunner 的记账字段，
   // mot 的题面与判分都不看它（看了就会破坏「同 (level, seed) 同轨迹」的复现契约）。
   configure(level: number, seed: number, roundNo: number): void {
     const lv = motLevel(level);
+    this.level = level;
+    this.seed = seed;
     this.lv = lv;
     this.rng = createRng(seed);
     this.dots = spawnDots(this.rng, lv);
@@ -68,6 +76,8 @@ export class MotEngine {
     this.steps = 0;
     this.timingValid = true;
     this.endAt = null;
+    this.submitAt = null;
+    this.feedbackEndAt = 0;
     void roundNo;
   }
 
@@ -109,6 +119,10 @@ export class MotEngine {
       }
       if (now >= this.motionEndAt) this.phase = 'answer';
     }
+    if (this.phase === 'feedback' && now >= this.feedbackEndAt) {
+      // endAt 取逻辑边界而不是这一帧的 now：反馈期溢出 15ms 不该算进本轮时长
+      this.endAt = this.feedbackEndAt;
+    }
   }
 
   input(e: InputEvent): void {
@@ -120,6 +134,13 @@ export class MotEngine {
     const i = this.selections.indexOf(id);
     if (i >= 0) this.selections.splice(i, 1); // 「再点一次取消」
     else this.selections.push(id);
+    // 「选满 K 个自动提交」（spec §3.4:122）：没有提交按钮，也没有视图侧计时器。
+    // submitAt 只可能来自 PointerEvent.timeStamp —— 视图传进来的 e.t，引擎自己不读时钟。
+    if (this.selections.length === this.lv.k && this.phase === 'answer') {
+      this.submitAt = e.t;
+      this.feedbackEndAt = e.t + FEEDBACK_MS;
+      this.phase = 'feedback';
+    }
   }
 
   snapshot(): MotSnapshot {
@@ -135,7 +156,7 @@ export class MotEngine {
         // 读一次 class 就能作弊，判分当场失效 —— 这条泄漏不会有类型错误。
         target: reveal ? d.target : false,
         selected: this.selections.includes(d.id),
-        mark: 'none' as MotMark,
+        mark: this.markOf(d),
       })),
       k: this.lv.k,
       selectedCount: this.selections.length,
@@ -144,6 +165,48 @@ export class MotEngine {
       simSteps: this.steps,
       timingValid: this.timingValid,
       done: this.endAt !== null,
+    };
+  }
+
+  // 只在 feedback 相位给标记：prompt 相位 selections 恒空，若那时也算标记，
+  // 所有目标都会挂上 'missed'，用户在提示阶段就能看出答案。
+  private markOf(d: DotState): MotMark {
+    if (this.phase !== 'feedback') return 'none';
+    const sel = this.selections.includes(d.id);
+    if (sel) return d.target ? 'hit' : 'wrong';
+    return d.target ? 'missed' : 'none';
+  }
+
+  result(): RoundResult {
+    if (this.endAt === null) throw new Error('mot round is not finished');
+    const targetIds = this.dots.filter((d) => d.target).map((d) => d.id);
+    const selected = this.selections.slice(); // 深拷贝口径见本 Task 开头（回应 M1 未决项 T40）
+    const hits = selected.filter((id) => targetIds.includes(id)).length;
+    const submitAt = this.submitAt as number;
+    const answerMs = Math.round(submitAt - this.motionEndAt); // 同域取差，不钳制（N-5）
+    return {
+      level: this.level,
+      seed: this.seed,
+      trials: [
+        {
+          onset: this.motionEndAt,
+          rt: answerMs,
+          correct: hits === this.lv.k,
+          hits,
+          k: this.lv.k,
+          selections: selected,
+          targetIds: targetIds.slice(),
+        },
+      ],
+      metrics: {
+        k: this.lv.k,
+        hits,
+        dots: this.lv.dots,
+        simSteps: this.steps,
+        motionMs: this.lv.durationSec * 1000,
+        answerMs,
+      },
+      timingValid: this.timingValid,
     };
   }
 
@@ -156,6 +219,7 @@ export class MotEngine {
   private remainMs(): number {
     if (this.phase === 'prompt') return this.promptEndAt - this.now;
     if (this.phase === 'motion') return this.motionEndAt - this.now;
-    return 0; // answer 不限时；feedback 分支由 Task 5 加
+    if (this.phase === 'feedback') return this.feedbackEndAt - this.now;
+    return 0; // answer 不限时
   }
 }

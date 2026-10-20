@@ -223,6 +223,16 @@ describe('createMotView', () => {
     expect(info.textContent).toBe('命中 1 / 2');
   });
 
+  // 变异自查补位：brief 的负值断言落在不显示倒计时的 answer 相位，删掉 Math.max(0,…) 钳制测不出来。
+  // 这条把负 remainMs 放进真正显示倒计时的 prompt/motion 相位，钳制缺失当场变红（-0.0 ≠ 0.0）。
+  it('prompt/motion 相位的负 remainMs 同样只显示 0.0，不出现 -0.0', () => {
+    const m = mount(snap({ phase: 'prompt', remainMs: -37, k: 2 }));
+    const info = m.host.children[0].children[0];
+    expect(info.textContent).toBe('盯住 2 个橙色点　0.0 秒');
+    m.view.render(snap({ phase: 'motion', remainMs: -1 }));
+    expect(info.textContent).toBe('追踪目标　剩余 0.0 秒');
+  });
+
   it('destroy 摘掉监听并移走根节点，之后 fire 不再 emit', () => {
     const { host, field, inputs, view } = mount(snap({ phase: 'answer' }));
     view.destroy();

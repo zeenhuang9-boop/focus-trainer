@@ -28,7 +28,10 @@ export function svg<K extends keyof SVGElementTagNameMap>(
 // 默认画布比曲线图宽一档，是为了给 5 个轴标签留出文字区：320 宽的画布上标签锚点在
 // x≈305，4 个 CJK 字（12px 字号约 44〜48px）从锚点向右排就直接越出 svg 边界（M3 浏览器验收
 // 实测 5/5 标签被裁）。R 周围同样留 40 的余量，顶部标签基线才压得住字形上伸。
-export function radarChart(axes: readonly RadarAxis[], w = 420, h = 340): SVGSVGElement {
+// 420 是「不裁」的下限而不是「可读」的下限：画布按 390 排版缩放后，12 用户单位的标签只剩
+// ~10.0px，读者基本看不清（F1 副作用，R1）。字号提到 14（预留宽度按 4×14=56），画布再宽 20
+// 单位把它换回裁切余量，两侧才同时成立；h 不动，所以 R 仍由 h 决定、等于 130。
+export function radarChart(axes: readonly RadarAxis[], w = 440, h = 340): SVGSVGElement {
   const cx = w / 2;
   const cy = h / 2;
   const R = Math.min(w, h) / 2 - 40;

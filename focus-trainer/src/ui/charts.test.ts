@@ -80,24 +80,24 @@ describe('radarChart', () => {
     { gameId: 'gestalt', ability: '完型整合', value: 30, practiced: true },
   ];
 
-  it('420×340 下画 4 圈、2 轴、1 多边形、2 个轴标签，坐标按 p() 保留一位小数', () => {
+  it('440×340 下画 4 圈、2 轴、1 多边形、2 个轴标签，坐标按 p() 保留一位小数', () => {
     installStub();
     const el = radarChart(axes) as unknown as StubSvg;
-    expect(el.getAttribute('viewBox')).toBe('0 0 420 340');
+    expect(el.getAttribute('viewBox')).toBe('0 0 440 340');
     expect(el.getAttribute('role')).toBe('img');
     expect(el.getAttribute('aria-label')).toBe('能力雷达图');
-    // R = min(420,340)/2 - 40 = 130
+    // R = min(440,340)/2 - 40 = 130（加宽画布不动 R：短边还是 h=340）
     expect(el.byClass('radar-ring').map((c) => c.getAttribute('r'))).toEqual(['32.5', '65.0', '97.5', '130.0']);
     expect(el.byClass('radar-axis').map((c) => `${c.getAttribute('x2')},${c.getAttribute('y2')}`)).toEqual([
-      '210.0,40.0',
-      '210.0,300.0',
+      '220.0,40.0',
+      '220.0,300.0',
     ]);
     expect(el.byClass('radar-area')).toHaveLength(1);
-    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('210.0,105.0 210.0,170.0');
-    // 标签半径 R + 20 = 150：顶部 y = 170 - 150 = 20，底部 y = 170 + 150 = 320
+    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('220.0,105.0 220.0,170.0');
+    // 标签半径 R + 20 = 150，cx=220 / cy=170：顶部 y = 170 - 150 = 20，底部 y = 170 + 150 = 320
     expect(el.byClass('radar-label').map((c) => c.getAttribute('x') + '|' + c.getAttribute('y'))).toEqual([
-      '210.0|20.0',
-      '210.0|320.0',
+      '220.0|20.0',
+      '220.0|320.0',
     ]);
     // 两轴时两条轴都在正上/正下（cos ≈ 0），锚点必须仍是 middle
     expect(el.byClass('radar-label').map((c) => c.getAttribute('text-anchor'))).toEqual(['middle', 'middle']);
@@ -117,7 +117,7 @@ describe('radarChart', () => {
     ]);
   });
 
-  it('标签锚点留得出字形宽度：最右 x ≤ 376、最左 x ≥ 44、最上 y ≥ 16', () => {
+  it('标签锚点留得出字形宽度：最右 x ≤ 384、最左 x ≥ 56、最上 y ≥ 16', () => {
     installStub();
     const el = radarChart(fiveAxes) as unknown as StubSvg;
     // node 里没有排版引擎，量不了 getBoundingClientRect，只能守「锚点 + 4 个 CJK 字」这条算式
@@ -127,18 +127,19 @@ describe('radarChart', () => {
     expect(xs).toHaveLength(5);
     expect(ys).toHaveLength(5);
     expect(xs.every(Number.isFinite)).toBe(true);
-    // 12px 字号下 4 个 CJK 字约 44〜48：右侧 start 向右展、左侧 end 向左收，各让 44
-    expect(Math.max(...xs)).toBeLessThanOrEqual(420 - 44);
-    expect(Math.min(...xs)).toBeGreaterThanOrEqual(44);
+    // 锚点实测：x = 220 + 150·cos ⇒ 220.0 / 362.7 / 308.2 / 131.8 / 77.3
+    // 14px 字号下 4 个 CJK 字约 56：右侧 start 向右展、左侧 end 向左收，各让 56
+    expect(Math.max(...xs)).toBeLessThanOrEqual(440 - 56);
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(56);
     expect(Math.min(...ys)).toBeGreaterThanOrEqual(16);
   });
 
   it('超过 100 或负数的 value 被夹到 [0,100]，多边形不会捅出外圈', () => {
     installStub();
     const el = radarChart([{ gameId: 'schulte', ability: 'a', value: 120, practiced: true }]) as unknown as StubSvg;
-    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('210.0,40.0');
+    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('220.0,40.0');
     const el2 = radarChart([{ gameId: 'schulte', ability: 'a', value: -5, practiced: true }]) as unknown as StubSvg;
-    expect(el2.byClass('radar-area')[0].getAttribute('points')).toBe('210.0,170.0');
+    expect(el2.byClass('radar-area')[0].getAttribute('points')).toBe('220.0,170.0');
   });
 
   it('轴数为 0 时只出一句降级文案，不画圈也不画轴', () => {

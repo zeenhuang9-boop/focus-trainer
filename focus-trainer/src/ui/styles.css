@@ -553,11 +553,13 @@ button:disabled {
   stroke-width: 2;
 }
 
+/* R1：12 用户单位在 390 排版下只剩 ~10.0px，轴标签基本看不清（F1 加宽画布的副作用）。
+   提到 14 后字号与图例同级；同组的降级文案与曲线端点标签一并跟上，不留下三档字号。 */
 .radar-label,
 .radar-none,
 .curve-edge {
   fill: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 /* 轴标签的 text-anchor 由 charts.ts 按象限写成呈现属性。呈现属性算「作者级、特异度 0」，

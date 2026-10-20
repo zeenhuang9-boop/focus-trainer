@@ -35,7 +35,10 @@ export const MAX_SPAWN_ATTEMPTS = 500;
 
 export const PROMPT_MS = 2000;
 export const FEEDBACK_MS = 1000;
-// spec §6:361：MOT 的运动阶段任一帧间隔 > 50ms ⇒ 本轮 timingValid = false。
+// 超出 spec §6:361 的有意收紧：§6:361 只点名 MOT 的「运动阶段」，本实现把提示期一并纳入判定 ——
+// 提示期与运动阶段任一帧间隔 > 50ms 都判 timingValid = false（engine.ts:100 的 phase 条件）。
+// 理由：提示期卡顿同样说明这一帧序列不可信，运动期是接着提示期的时钟跑的。这是偏离规格而非引用
+// 规格，收紧方向保守（只会多作废轮，不会把坏轮当 good 轮计分），终审 SF-2 裁定保留。
 export const MAX_FRAME_INTERVAL_MS = 50;
 
 export function motLevel(level: number): MotLevel {

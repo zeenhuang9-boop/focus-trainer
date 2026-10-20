@@ -116,6 +116,29 @@ describe('timingValid', () => {
     expect(e.snapshot().timingValid).toBe(false);
   });
 
+  // 终审 SF-2：判定范围覆盖提示期是「超出 §6:361 的有意收紧」（见 rules.ts:38 的注释），
+  // 规格本身只点名运动阶段，所以这条偏离必须有用例钉住 —— 否则下一个人会把它当成 bug 缩回去。
+  it('提示期出现 > 50ms 的帧间隔同样作废本轮（有意收紧，spec 只点名运动阶段）', () => {
+    const e = make(1);
+    e.tick(START + 16); // 首帧只建基准；此刻距提示期结束还有 1984ms
+    expect(e.snapshot().phase).toBe('prompt');
+    expect(e.snapshot().timingValid).toBe(true);
+    e.tick(START + 67); // 间隔 51ms，全程都还在提示期
+    expect(e.snapshot().phase).toBe('prompt');
+    expect(e.snapshot().timingValid).toBe(false);
+  });
+
+  it('16ms 正常节奏：提示期整段与运动期整段都保持 timingValid = true（上一条的反向对照）', () => {
+    const e = make(1);
+    feedRange(e, START + 16, PROMPT_END - 16, 16);
+    expect(e.snapshot().phase).toBe('prompt');
+    expect(e.snapshot().timingValid).toBe(true);
+    feedRange(e, PROMPT_END, L1_MOTION_END - 16, 16);
+    expect(e.snapshot().phase).toBe('motion');
+    expect(e.snapshot().timingValid).toBe(true);
+    expect(e.result.bind(e)).toThrow(); // 仍在轮内，正向对照不能顺手把轮跑完
+  });
+
   it('帧间隔恰为 50ms 不作废（阈值是严格大于）', () => {
     const e = make(1);
     e.tick(PROMPT_END + 100);

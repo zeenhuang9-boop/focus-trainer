@@ -208,6 +208,7 @@ describe('answer 阶段的点选', () => {
     // 相位同时进 feedback（原注释「选满 K 之后仍能改选」描述的是 Task 4 的半成品行为）。
     expect(e.snapshot().selectedCount).toBe(2);
     expect(e.snapshot().phase).toBe('feedback');
+    expect(e.snapshot().timingValid).toBe(true);
   });
 
   it('target 只在 prompt / feedback 暴露：运动与作答阶段的快照全是 false', () => {

@@ -2,6 +2,7 @@ apply plugin: 'com.android.application'
 
 android {
     namespace = "com.focustrainer.app"
+    buildToolsVersion = "36.1.0"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.focustrainer.app"

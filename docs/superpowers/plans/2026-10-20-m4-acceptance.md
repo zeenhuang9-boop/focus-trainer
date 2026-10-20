@@ -260,3 +260,71 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 **审计结论**：6 条里 5 条由当场可重跑的实测支撑；唯一未证的是标准 1 的「可安装」，它需要手机在场，执行入口是 `2026-10-20-m4-realdevice-runbook.md`。
 **包内一致性另附**：`dist` 的 4 个产物与 APK 内 `assets/public/` 同名文件 **MD5 逐一相同**（`index-txlbMeE-.js` / `index-CeJy5hqz.css` / `web-BnoYLHys.js` / `index.html`）。
 **本文件不构成标准 1 已关闭的宣告。**
+
+---
+
+## 14. 纸质手册第二轮：分页减负的浏览器实测（2026-10-20 22:49，控制器当场执行）
+
+对应计划 `2026-10-20-ui-page-split.md` Task 5。命令与探针全部当场重跑，不引用 §1–§13 的数字。
+
+**通道实况**：驱动的是 Qoder 内置 webview。顶层 `window.innerWidth/innerHeight` 实测 **894×598**（本通道这个值一直不稳，§追加记录里出现过 0×0）。尺寸判据一律走同源 iframe：`width:390px;height:844px` 的 `#probe390`，iframe 内实测 `innerWidth=390 / innerHeight=844 / documentElement.clientWidth=375`（经典滚动条吃 15px，真机 WebView 不占宽，所以本通道量的可用宽度永远偏小）。
+
+### 14.1 逐页「一屏装不装得下」（390×844 排版，实测原文）
+
+| 页 | `scrollHeight` | 视口 | 倍数 | `#view` 直接子块 | 各块高度（px） | 最后一块 bottom vs 页签 top | `aria-current` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `#/` 今日 | **900** | 844 | **1.07** | **6** | 28 / 44 / 383.2（活体方格）/ 20 / 212.8（3 行计划）/ 48 | 772 < 783，间隙 **11px**，未被遮 | 恰 1 条 =「今日」 |
+| `#/games` 训练库 | **844** | 844 | **1.00** | 3 | 28（抬头「训练库 / 5 款」）/ 20（区段头 library）/ 412（5 行 × **76.0**） | 504 < 783，未被遮 | 恰 1 条 =「库」 |
+| `#/trend` 趋势 | 1247 | 844 | 1.48 | 5 | 28（裸 `h1`「趋势」）/ 69.6 / 483.38（雷达）/ 251.6（曲线）/ 266.29（日历） | 772 < 783，未被遮 | 恰 1 条 =「趋势」 |
+| `#/settings` 设置 | **844** | 844 | **1.00** | 4 | 28（裸 `h1`「设置」）/ 73.6（分界时间）/ 25.6（说明）/ 48（清空数据） | 235 < 783，未被遮 | 恰 1 条 =「设置」 |
+
+计划 Task 5 Step 2 的四条判据：**① PASS**（首页 1.07 屏 ≤ 1.15，区块 6 ≤ 6 —— 改造前实测是 1314px / 9 区块）；**② PASS**（训练库 5 行齐、恰好 1 屏）；**③ PASS**（见 14.2）；**④ PASS**（四页滚动到底都不被页签遮，首页间隙 11px 最小）。
+
+台账 §「待办的浏览器实测项」里那条 `.plan-row` 行高：实测训练库行 **76.00px**、首页计划行 **70.93px**（212.8 ÷ 3，首页行没有「练什么」那一行所以更矮）；首页 3 行 + 抬头 + 区段头 + 按钮仍落在 1.07 屏内，判为达标。趋势页 1.48 屏是**已裁定的不拆项**（998px 是图表本体，滚动就是它的正常用法）。
+
+### 14.2 页签本体与正文避让（`getComputedStyle` / `getBoundingClientRect` 实测）
+
+- `#tabbar`：`position: fixed`、`display: flex`、高 **60.80px**、`top 783.2 / bottom 844`（贴在视口底，`env(safe-area-inset-bottom)` 在本通道恒 0）。
+- 四条 `.tab`：各 **86.80 × 48.00px**，`min-height: var(--tap)` 生效（48 = 触控下限）；合计宽 347.2 ≤ iframe 可用宽 375；`documentElement.scrollWidth === clientWidth`，**无横向滚动**。
+- `#view` 的 `padding-bottom` 实测 **72px**（= 12 + `--nav-h: 60px`），且 `#view` 的 `padding: 12px` 未被改动 —— 这是被 `styles.test.ts:72` 与 7×7 出血算式钉死的那条，本片的避让另起 `body:not(.training) #view` 选择器，实测两者互不干扰。
+
+### 14.3 页签与训练态互斥（Step 3）
+
+| 状态 | `#tabbar.hidden` | `getComputedStyle(tabbar).display` | `body.className` |
+| --- | --- | --- | --- |
+| `#/`、`#/games`、`#/trend`、`#/settings` | false | flex | （空） |
+| `#/play/schulte/plan` 说明页与训练中 | **true** | **none** | `training` |
+| `#/result/11` 结算页 | **true** | **none** | （空，`.training` 已随 abort 摘掉） |
+| 结算页点「回首页」之后 | false | flex | （空），`aria-current` 落回「今日」 |
+
+训练与结算两态都拿不到「离开这一轮」的入口，符合设计意图；结算页回到今日后页签照常出现。
+
+### 14.4 整场闭环（Step 4，注入帧时钟）
+
+配方照 `_browser-acceptance-channel.md` §5：接管 iframe 的 `requestAnimationFrame` / `cancelAnimationFrame`，每帧 +16ms（≤50ms ⇒ spec §6 的帧间隔作废判定不误触），`pointerdown` 的 `timeStamp` 改写为逻辑时钟。
+
+**一处通道新事实（本条影响后面所有跑帧验收的人）**：内置 webview 处于 `visibilityState=hidden` 时，Blink **根本不派发 rAF**，所以「装桩之后页面里已经有一次真实 rAF 在排队」的循环永远接不上（实测 `countdown` 冻在「5」、`__S.cbs.size` 为 0）。解法：**装桩之后重挂页面** —— 先把 hash 打到 `#/` 再打回 `#/play/…`，路由回调 abort 旧页、`renderPlay` 重新 `requestAnimationFrame(frame)`，这一次注册落进桩里（实测 `cbs: 1`），此后循环完全归逻辑时钟驱动。
+
+实测数据：
+
+- 舒尔特 `#/play/schulte/plan`（第 4 档，5×5，题面序列实测为 **25→1 倒序**，`trials[0].label="25"`、`trials[1].label="24"`）：**25 次点按 × 3 轮 = 75 taps，0 误点、0 异常**（`errs: []`）。
+- 难度自动升降**当场看到两次真实迁移**：第 1 轮后浮层「通过 ↑ 升到第 5 档」，第 2 轮后「未通过 ↓ 降到第 4 档」，结算页抬头写「档位 第 4 档 ↑ 第 5 档」。
+- 结算页文本：`#/result/11`，「本次结果 / 舒尔特方格　今日计划 / 用时 103.8 秒 / 最佳用时 0.9 秒 / 平均每格 1383 毫秒 / 总误点 0 次 / 能力指数 42（上次 25，+17）/ 今日计划已完成 ✓ / 回首页」。
+- **真库自证**（`indexedDB.open('focus-trainer')`，每个请求都配 `Promise.race` 4s 兜底）：`sessions` 4 行、id `[8,9,10,11]`；`id=11` = `{gameId:"schulte", mode:"plan", dayKey:"2026-10-20", ability:42, rounds:3, rounds[0].trials.length:25}`，试次字段 `{onset, rt, correct, label, misses}`，`rt` 是帧时间戳口径（首点 5264ms、次点 32ms —— 差值即逻辑时钟下的真实间隔）。`gameState` 三行 `schulte//5, seqmem//1, stroop//3` ⇒ **档位 4→5 已续上**，首页计划行同步显示「舒尔特方格 第 5 档 ✓」。
+- 其余四款挂载并进入运行态（本轮是改版回归，整场逐款已在 M2/M3 验过）：`stroop` 第 1/4 轮 第 3 档「按颜色 · 红绿黄蓝 · 第 1/12 试次」；`seqmem` 第 1/3 轮 第 1 档「记住顺序 · 第 1 条 · 3 格」；`mot` 第 1/8 轮 第 1 档「追踪目标　剩余 4.9 秒」；`gestalt` 第 1/16 轮 第 1 档「选出刚才看到的图形」。四款 `#tabbar.hidden` 全为 true、`body.training` 全在。**只记录不判定**：本通道里 `mot` 页 `document.querySelector('svg')` 返回 false 而 `gestalt` 返回 true；刺激区几何不归本片管（M2/M3 已按各自判据验过），留作真机复核项。
+
+### 14.5 归属与残余（照 M3 的写法如实挂着）
+
+| 项 | 等级 | 说明 |
+| --- | --- | --- |
+| 四页排版尺寸、页签高度/宽度/避让、训练态互斥 | **浏览器实测** | 14.1–14.3 全部是 `getBoundingClientRect` / `getComputedStyle` 原文数字 |
+| 整场流程闭环 + 引擎在逻辑时间轴上自洽 + 真库落盘 | **浏览器实测（合成点击）** | 14.4；点按用 `pointerdown` 合成事件，不是真实手指 |
+| 页签 `<a>` → 路由 → 重渲染这条接线 | **浏览器实测（`a.click()`）** | 顶层文档 `document.querySelector('#tabbar a[href="#/games"]').click()` → `hashchange` 计数 1、`#view` 变成「训练库 5 款」、`aria-current` 移到「库」。**证明的是接线，不是真实手指** |
+| 真实手指点页签（MCP `click`） | **残余** | 内置 webview `visibilityState=hidden`，`mcp click` 报成功但**文档里收不到任何 click 事件**（探针计数不变），`take_screenshot` 报 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE`；`select_page(bringToFront=true)` 无效，外部 Chrome 报「No current window」。需要把 Qoder 的内置 Browser 面板打开、或直接在真机验 |
+| `env(safe-area-inset-bottom)`（刘海屏避让） | **残余 → 真机** | 本通道 iframe 里恒 0，`#tabbar` 底部内边距 `calc(6px + env(...))` 的真实取值只能上机看 |
+| 结算页吃到的 72px 底部留白观感 | **残余** | 结构上实测无害（结算页最后一块 bottom 772 < 页签 top 783，且结算态页签本就隐藏），但**没有可见表面就无从谈观感**，留给真机 |
+| 原生 `confirm()` 的取消分支 | **残余 → 真机**（既有） | 本轮一律先在 iframe 里把 `w.confirm` 打桩再验接线，不真点 |
+| 趋势页 1.48 屏 | **裁定项，非缺陷** | 见台账 §裁定；小泽若仍嫌挤要重裁（拆法已在后置清单留口） |
+
+**标准 6 的计数更新**：本轮四片（T1–T4 + 两次修复）把 `npx vitest run` 从 §13 记的 **40 文件 / 472 用例** 推到 **43 文件 / 517 用例**（新增 `nav.test.ts`、`library.test.ts` 等文件与页签/训练库/避让/boot 级用例，删掉 1 条已不存在功能的用例、又补回 1 条设置页 boot 级断言）。两个数不矛盾，是不同时点。
+

@@ -65,26 +65,44 @@ describe('48px 触控目标（M1 遗留缺陷 2）', () => {
     expect(css).toMatch(/button,\s*select\s*\{[^}]*min-width:\s*var\(--tap\)/);
   });
 
-  it('方格改成 gap 2px + 满宽，负外边距恰好等于 #view 的内边距', () => {
-    expect(decl('.schulte-grid', 'gap')).toBe('2px');
+  it('方格改成 gap 1px + 满宽，负外边距恰好等于 #view 的内边距', () => {
+    expect(decl('.schulte-grid', 'gap')).toBe('1px');
     expect(decl('.schulte-grid', 'width')).toBe('calc(100% + 24px)');
     expect(decl('.schulte-grid', 'margin')).toBe('0 -12px');
     expect(decl('#view', 'padding')).toBe('12px');
     expect(decl('.schulte-cell', 'min-height')).toBe('0');
+    // 1fr 轨道不许被内容最小尺寸顶开：这条 HEAD 里就有了，所以本次只动 gap，
+    // 不重复加（min-width 也帮不上 ≥48 的判据，它只会阻止轨道被撑宽，不会把格子变大）。
+    expect(decl('.schulte-cell', 'min-width')).toBe('0');
   });
 
-  it('按 CSS 里的数字重算：360px 屏上 7×7 每格 ≥ 48px（M1 实测 44.6px）', () => {
+  it('按 CSS 里的数字重算：360/390 两档在有、无滚动条下 7×7 每格都 ≥ 48px（M1 实测 44.6px）', () => {
     const gap = px(decl('.schulte-grid', 'gap'));
     const pad = px(decl('#view', 'padding'));
     const bleed = Math.abs(px(decl('.schulte-grid', 'margin')?.split(' ')[1]));
-    expect(gap).toBe(2);
+    expect(gap).toBe(1);
     expect(bleed).toBe(pad);
-    const cellAt = (viewport: number, cols: number): number => (viewport - 2 * (pad - bleed) - (cols - 1) * gap) / cols;
+    // 网格用 width: calc(100% + 24px) + margin: 0 -12px 出血掉 #view 的左右内边距，
+    // 所以网格宽度就是 clientWidth 本身，格子只被 (cols-1)·gap 吃掉宽度：
+    // 验收实测 7×51.84 + 6×2 = 374.88 ≈ 390 排版的 clientWidth 375，算式对得上。
+    const cellAt = (clientWidth: number, cols: number): number =>
+      (clientWidth - 2 * (pad - bleed) - (cols - 1) * gap) / cols;
+    // 桌面/同源 iframe 的经典滚动条吃 15px；真机 WebView 是覆盖式滚动条不占宽。
+    // 判据 13 的字面阈值在有滚动条的排版下也成立才算过，所以两档各算一遍。
+    const SCROLLBAR = 15;
     expect(cellAt(360, 7)).toBeGreaterThanOrEqual(48);
     expect(cellAt(390, 7)).toBeGreaterThanOrEqual(48);
+    expect(cellAt(360 - SCROLLBAR, 7)).toBeGreaterThanOrEqual(48);
+    expect(cellAt(390 - SCROLLBAR, 7)).toBeGreaterThanOrEqual(48);
     expect(cellAt(360, 3)).toBeGreaterThanOrEqual(48);
-    expect(Math.floor(cellAt(360, 7))).toBe(49);
+    expect(Math.floor(cellAt(360, 7))).toBe(50);
     expect(Math.floor(cellAt(390, 7))).toBe(54);
+    expect(Math.floor(cellAt(360 - SCROLLBAR, 7))).toBe(48);
+    // 反证：gap 还是 2px 时同一算式给 47.57，正是验收实测的 47.56（差 0.01 是亚像素取整），
+    // 收到 1px 后每格拿回 6/7 = 0.857px ⇒ 48.42。改前的 12px 内边距扣减是重复计算。
+    expect((345 - 6 * 2) / 7).toBeCloseTo(47.56, 1);
+    expect((375 - 6 * 2) / 7).toBeCloseTo(51.84, 1);
+    expect(cellAt(360 - SCROLLBAR, 7)).toBeCloseTo(47.56 + 6 / 7, 1);
   });
 });
 

@@ -212,10 +212,14 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-/* 满宽 + 2px 间距：360px 屏上 7×7 每格 49.7px，390px 屏上 54.0px */
+/* 满宽出血 + 1px 间距：网格宽度 = clientWidth（width: calc(100% + 24px) 与 margin: 0 -12px
+   正好抵消 #view 的 12px 内边距），每格 = (clientWidth - 6·gap) / 7。
+   gap 从 2px 收到 1px 是为了 7×7 在「有经典滚动条」的排版下也过 48px 触控下限：
+   360 排版 clientWidth 345 ⇒ 47.56 → 48.42；390 排版 clientWidth 375 ⇒ 51.84 → 52.70。
+   无滚动条（真机覆盖式）时分别是 50.57 与 54.86。数字由 styles.test.ts 的算式钉住。 */
 .schulte-grid {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   width: calc(100% + 24px);
   margin: 0 -12px;
   aspect-ratio: 1;

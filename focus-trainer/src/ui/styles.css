@@ -87,12 +87,13 @@ body {
 }
 
 #banner {
-  background: #5f2120;
-  color: #fff;
+  background: var(--bad);
+  color: #fbfbf8;
   padding: 8px 16px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
+/* padding: 12px 被 styles.test.ts 与 7×7 的 48px 算式钉死，不许动，也不许在方格外层补内边距 */
 #view {
   flex: 1;
   display: flex;
@@ -101,8 +102,11 @@ body {
   padding: 12px;
 }
 
+/* ── 字：只走 11 / 13 / 16 / 22 / 30 / 44 六档，标题 sentence case，中文不加负字距 ──
+   表情层是数字，眉标是拉丁小大写标签（游戏 id 就是路由名，读者点进去 URL 与标签一致）。 */
 h1 {
   font-size: 22px;
+  font-weight: 700;
   margin: 0;
 }
 
@@ -118,6 +122,27 @@ p {
   line-height: 1.6;
 }
 
+/* 眉标：11px 拉丁小写→大写 + 宽字距，日志本上「贴标签」那一笔 */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* 读数一律等宽数字：计时、反应时、档位、能力指数跳动时不推挤布局 */
+.big,
+.num,
+.stat > span:last-child,
+.schulte-info,
+.stroop-info,
+.warmup-cell,
+.countdown {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
 button,
 select {
   font: inherit;
@@ -126,14 +151,14 @@ select {
   min-width: var(--tap);
   border: 1px solid var(--line);
   background: var(--panel);
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 0 16px;
   touch-action: manipulation;
 }
 
 button.primary {
   background: var(--accent);
-  color: #0b1a2e;
+  color: var(--on-accent);
   border-color: transparent;
   font-weight: 600;
 }
@@ -145,6 +170,17 @@ button.danger {
 
 button:disabled {
   opacity: 0.4;
+}
+
+/* 焦点环：普鲁士蓝对纸底 7.44:1（判据只要 ≥3:1）；深色舞台里换成 --accent，
+   因为 --focus 对 #10151a 只有 2.15:1，看不见就等于没有焦点态 */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+body.training :focus-visible {
+  outline-color: var(--accent);
 }
 
 .row {
@@ -167,6 +203,7 @@ button:disabled {
   gap: 8px;
 }
 
+/* 卡片 = 纸上再放一张纸：卡面比纸亮一档、1px 灰绿线、6px 小圆角、只一层极浅阴影 */
 .card {
   width: 100%;
   min-height: 56px;
@@ -175,32 +212,58 @@ button:disabled {
   gap: 12px;
   padding: 12px 16px;
   text-align: left;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(22, 26, 30, 0.08);
 }
 
+/* 打卡过的行改颜色不改 opacity（M1 遗留缺陷 1 的同一条纪律：不许用透明度抹掉信息） */
 .card.done {
-  opacity: 0.6;
+  border-color: var(--done);
+  color: var(--muted);
+}
+
+/* 区段头：拉丁眉标 + 中文名，一行搞定，不再多占一档字号 */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .big {
-  font-size: 40px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1;
 }
 
 .stat {
   display: flex;
   justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
 }
 
+.stat > span:first-child {
+  color: var(--muted);
+}
+
+.stat > span:last-child {
+  font-weight: 700;
+}
+
+/* ── 训练外壳（深色舞台）──
+   .play-top 之外这三层（.stage / .stage-game / 游戏视图根）是 7×7 方格到 #view 之间的全部祖先，
+   一律不许加 padding：方格的 ≥48px 是「满宽 − 12px×2 − 6×1px」算出来的，加一层就跌破真机下限，
+   而 styles.test.ts 只读 CSS 文本、看不见祖先容器，照样全绿。下面三条 padding: 0 是写死的护栏。 */
 .play-top {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 0;
+  font-size: 13px;
 }
 
 .stage {
@@ -208,12 +271,14 @@ button:disabled {
   position: relative;
   display: flex;
   flex-direction: column;
+  padding: 0;
 }
 
 .stage-game {
   flex: 1;
   display: flex;
   flex-direction: column;
+  padding: 0;
 }
 
 .overlay {
@@ -230,9 +295,12 @@ button:disabled {
   background: rgba(20, 22, 26, 0.94);
 }
 
+/* 倒计时是读数，不是装饰：走字阶最大档 44px / 900（原 72px 不在六档内） */
 .countdown {
-  font-size: 72px;
-  font-weight: 700;
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1;
 }
 
 .overlay-msg {
@@ -593,7 +661,7 @@ button:disabled {
 }
 
 .radar-area {
-  fill: rgba(138, 180, 248, 0.22);
+  fill: rgba(28, 79, 124, 0.14);
   stroke: var(--accent);
   stroke-width: 2;
 }
@@ -666,9 +734,10 @@ button:disabled {
   gap: 12px;
   min-height: 32px;
   padding: 0 12px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(22, 26, 30, 0.08);
   font-variant-numeric: tabular-nums;
 }
 

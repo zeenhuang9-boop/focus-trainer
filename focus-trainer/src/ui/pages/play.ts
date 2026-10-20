@@ -72,6 +72,7 @@ export async function renderPlay(
     h(
       'div',
       { class: 'play-top' },
+      h('span', { class: 'eyebrow' }, game.id),
       h('span', null, game.name),
       roundEl,
       levelEl,

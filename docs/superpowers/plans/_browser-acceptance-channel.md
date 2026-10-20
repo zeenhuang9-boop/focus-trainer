@@ -55,3 +55,8 @@ MCP 逐格点击一次往返约 1 秒，任何「N 秒内点完」的判分目�
    要点：**每帧 +16ms**（≤50ms，spec §6:361 的帧间隔作废判定不会被误触发，所以 `timingValid` 仍为 `true` —— 这正好是「判定本身有效」的反向证据）；事件的 `timeStamp` 必须改写为逻辑时钟，否则引擎用逻辑帧戳、事件用真实时钟，`rt` 变负被丢弃；MOT 的点是 SVG 圆，`pointerdown` 必须带 `clientX/clientY`（取 bbox 中心）才命中，其余四款按元素身份即可；推进按钮（开始/继续/重试）用 `el.click()` 且**每个节点只点一次**（挂 `el.__acc` 防重）。`cancelAnimationFrame` 写成 no-op + 重复点同一节点这两件事同时踩，才会造出 `cannot begin a round while playing` —— 那是 harness 的假象，不是产品缺陷（已用测试钉死：`3da7649`）。驱动 8 轮 MOT 实测约 2160 次派发、0 异常；单次 `evaluate_script` 调用有 **15 秒上限**，所以要分次调用、把状态机留在 iframe window 上。
    如实声明：**这条证明的是「流程闭环 + 引擎在逻辑时间轴上自洽」，不是真实手感与真帧率**；后者只能由 M4 Task 8 真机补。
 6. **`src/` 被写时 vite HMR 会整页 reload，注入的 iframe 与 harness 全清空。** 所以浏览器验收与「写 `src/` 的子 agent」**不能并行**：要么先跑完验收再派实现，要么接受重建 harness。评审类（只读）agent 可以并行。
+
+## 2026-10-20 再追加：15 秒是「往返上限」，不是「页面执行上限」
+`evaluate_script` 报 `Browser operation timed out after 15000ms` **不代表脚本失败**：脚本可以在页面里继续跑完并落库，只是返回值赶不上 CDP 的 15 秒窗口。判别法：紧接着发一个不含任何等待、只读 `location.href` / `#view` 文本 / `String(window.requestAnimationFrame)` 的最小调用 —— 能立刻返回就说明通道一直是活的，页面状态就是证据（本轮就看到过页面停在「第 1 / 3 轮　第 4 档　用时 9.6 秒　误点 24」的中间态，而前一个调用"超时"了）。
+所以判据必须拆成**一次调用只做一件事**：① 跑完整场并落库 → ② 只读库 → ③ `navigate_page(type=reload)` → ④ 只读库并看续上什么档。把「跑场 + 读库 + 再驱动」塞进一个脚本，必然赶不上。
+两个配套纪律：进门**第一行**就 `window.confirm = () => true`（原生对话框会堵死整条通道，且这一句成本为零）；`indexedDB.open()` 与每个 `getAll()` 都用 `Promise.race` 配一个 3–5 秒的 `TIMEOUT` 兜底，别让一个不返回的请求吃掉整个窗口。

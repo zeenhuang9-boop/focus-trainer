@@ -203,3 +203,20 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 所以这条**记为残余项，不许含糊**：标准 3 的持久化链在浏览器里没有正面证据。它属于 M4 Task 8 真机清单的一条（装机后「练一轮 → 杀掉 App 进程 → 重开 → 看首页档位」），而且拆分手法现成：把「跑完整场」和「读库+重载后读库」拆成两次 `evaluate_script`，各自控制在 15s 内。
 
 现场处置：探针替换过该页面的 `window.requestAnimationFrame`，停 dev server 后该页面无意义，下次验收重新导航即可拿到未打补丁的上下文；5173 端口已停。
+
+## 11. §10 的缺口已关闭：真库 → 整页重载 → 下一场续档（2026-10-20 19:55）
+
+拆分手法生效：**一次调用只做一件事**（跑场 / 读库 / 重载后读库），并把 `window.confirm` 在进门第一行打桩。以下全部是浏览器里真 IndexedDB 的实测原文，不是测试承接。
+
+- **重载前的 `gameState`**：`[{schulte, level:4, passStreak:0, failStreak:0, lastPlayedDayKey:"2026-10-20"}, {seqmem, level:1, …}, {stroop, level:3, …}]` —— 三款都不是初始第 1 档。
+- **`sessions` 三行的 `(gameId, mode, startLevel, endLevel, ability, rounds.length)`**：`[schulte, plan, 1, 4, 25, 3]`、`[stroop, plan, 1, 3, 15, 4]`、`[seqmem, plan, 1, 1, 7, 3]`。**升档是在一场训练内由成绩触发并落库的**（`startLevel 1 → endLevel 4`），这条以前只有单测证据。
+- **`navigate_page(type=reload)` 之后**：`gameState` 三行一字不变 → 持久化成立。
+- **重载后再进 `#/play/schulte/free`**：视图标题实测为「舒尔特方格　第 1 / 3 轮　**第 4 档**」→ **下一场从新档位续上**，这是标准 3 后半句的正面观测。（此刻 `cellCount=0`，因为页面停在说明页，符合 spec 的「说明页 → 倒计时 → 训练」顺序，不是空网格。）
+- **`plans` 行**：`{dayKey:"2026-10-20", games:[schulte, stroop, seqmem], completed:[schulte, stroop, seqmem]}` → 顺带补上标准 4「3 项完成即打卡」的数据面（今天计划 3 项全完成）。
+- 每行 `rounds[].trials[]` 带 `onset / rt / correct / span / dir / taps`，`rt` 是帧时间戳口径 → 标准 6 的「关键时序写入试次记录」在真库数据里看得见。
+
+### 11.1 对 §10 那两次超时的更正
+先前写的「可能是原生 `confirm` 把通道堵死」**不成立**：打桩之后第三次仍超时，而随后一个不含任何等待、只读 `location.href`/视图文本/rAF 的最小 `evaluate_script` **立刻返回**，且返回的页面状态停在「第 1 / 3 轮　第 4 档　用时 9.6 秒　误点 24」——说明通道一直是活的，探针也一直在页面里正常执行。**真正的原因是 15 秒是 CDP 往返的上限，不是页面执行的上限**：把「跑完整场 + 读库」塞进一个脚本，训练本身跨过了上限，于是拿得到结果却拿不到返回值。这条已同步进 `_browser-acceptance-channel.md`。
+
+### 11.2 如实限定
+这几场由合成 `pointerdown` + 注入帧时钟驱动，`rt`／用时数值不代表真实手感（但档位判定、入库结构、重载续档走的是真实代码路径与真实 IndexedDB）。真机 M4 Task 8 仍要把同一组观测在手机上重跑一次，尤其是「杀进程重开」比浏览器 reload 更强的那一档。

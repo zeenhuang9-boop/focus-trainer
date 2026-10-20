@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: '专注力训练',
   webDir: 'dist',
   loggingBehavior: 'debug',
-  backgroundColor: '#14161a',
+  backgroundColor: '#eef0ea',
   zoomEnabled: false,
 };
 

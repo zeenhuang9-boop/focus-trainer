@@ -73,7 +73,7 @@ describe('renderNav', () => {
     expect(root.textContent).toBe('');
   });
 
-  it('四种非常驻路由都走隐藏入口', () => {
+  it('三条非常驻路由都走隐藏入口', () => {
     for (const r of [
       { name: 'play', gameId: 'schulte', mode: 'plan' },
       { name: 'play', gameId: 'mot', mode: 'free' },

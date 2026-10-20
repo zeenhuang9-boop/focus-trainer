@@ -262,3 +262,31 @@ describe('首页活体方格（招牌）', () => {
     expect(decl('.warmup-cell.done', 'background')).toBe('var(--done)');
   });
 });
+
+describe('底部页签与正文避让', () => {
+  it('页签挂在 #tabbar 上固定到视口底，高度记在 --nav-h', () => {
+    expect(decl(':root', '--nav-h')).toBe('60px');
+    expect(decl('#tabbar', 'position')).toBe('fixed');
+    expect(decl('#tabbar', 'bottom')).toBe('0');
+    expect(decl('#tabbar', 'border-top')).toBe('1px solid var(--rule)');
+  });
+
+  it('页签自己锚到 48px（<a> 吃不到 button,select 那条全局规则）', () => {
+    expect(decl('#tabbar .tab', 'min-height')).toBe('var(--tap)');
+    expect(decl('#tabbar .tab', 'text-decoration')).toBe('none');
+  });
+
+  it('当前页用颜色区分，不用 opacity', () => {
+    expect(decl('#tabbar .tab.active', 'opacity')).toBeNull();
+    expect(decl('#tabbar .tab.active', 'color')).toBe('var(--focus)');
+  });
+
+  it('避让写在另一条选择器上，被钉死的 #view padding:12px 一个字没动', () => {
+    expect(decl('#view', 'padding')).toBe('12px');
+    expect(blocksFor('body:not(.training) #view').some((b) => /padding-bottom:\s*calc\(12px \+ var\(--nav-h\)\)/.test(b))).toBe(true);
+  });
+
+  it('训练路由里页签隐藏由 body.training 兜第二层，JS 的 hidden 是第一层', () => {
+    expect(blocksFor('body.training #tabbar').some((b) => /display:\s*none/.test(b))).toBe(true);
+  });
+});

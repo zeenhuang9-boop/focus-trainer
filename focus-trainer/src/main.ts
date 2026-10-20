@@ -3,6 +3,7 @@ import { MemoryRepository, openIdbRepository, type Repository } from './core/sto
 import { registerBackButton } from './ui/android-back';
 import type { AppContext } from './ui/context';
 import { h } from './ui/dom';
+import { renderNav } from './ui/nav';
 import { renderHome } from './ui/pages/home';
 import { renderLibrary } from './ui/pages/library';
 import { renderPlay } from './ui/pages/play';
@@ -33,6 +34,7 @@ function show(route: Route, view: HTMLElement, ctx: AppContext, signal: AbortSig
 export async function boot(): Promise<void> {
   const banner = document.getElementById('banner') as HTMLElement;
   const view = document.getElementById('view') as HTMLElement;
+  const tabbar = document.getElementById('tabbar') as HTMLElement;
   let repo: Repository;
   let storageOk = true;
   try {
@@ -50,6 +52,7 @@ export async function boot(): Promise<void> {
   let currentRoute: Route = { name: 'home' };
   startRouter((route) => {
     currentRoute = route;
+    renderNav(tabbar, route);
     current?.abort();
     const ac = new AbortController();
     current = ac;

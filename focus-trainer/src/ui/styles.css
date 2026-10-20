@@ -1,6 +1,7 @@
 /* ── 设计 tokens：冷调坐标纸「纸质训练手册」 ─────────────────────────
    纸是冷灰绿的坐标纸，不是暖奶油；不用衬线、不引字体文件（离线红线）。
-   9 个命名值：--paper 纸底 / --card 卡面（比纸略亮一档，「纸上放纸」）/ --ink 正文墨 /
+   9 个命名值 + 1 个尺寸值 --nav-h（底部页签的高度，正文靠它避让）：
+   --paper 纸底 / --card 卡面（比纸略亮一档，「纸上放纸」）/ --ink 正文墨 /
    --ink-2 弱字与眉标 / --rule 分隔线（灰绿，不用纯灰）/ --focus 普鲁士蓝（唯一主强调）/
    --done 苔绿（已完成、打卡）/ --bad 砖红（只在「错」的语义上）/ --stage 深色刺激窗口。
    旧名 --bg/--panel/--line/--text/--muted/--accent/--bad 全部保留并指向新值：视图与
@@ -25,6 +26,7 @@
   --muted: var(--ink-2);
   --accent: var(--focus);
   --on-accent: #fbfbf8;
+  --nav-h: 60px;
   --tap: 48px;
   --done-fg: #9aa4b2;
   --done-bg: #191c21;
@@ -896,6 +898,52 @@ body.training :focus-visible {
 .plan-ability {
   font-size: 13px;
   color: var(--ink-2);
+}
+
+/* ── 底部页签：把「今日 / 库 / 趋势 / 设置」从正文里拿走 ─────────────────
+   fixed 挂视口底，不参与 #app 的 flex 记账；正文避让另起一条
+   body:not(.training) #view 的规则，不去改被 styles.test.ts 与 7×7 触控算式
+   钉死的 #view { padding: 12px }。两层隐藏：main.ts 置 root.hidden（第一层），
+   body.training 的 display:none（第二层，防止路由回调与样式应用之间的闪一下）。 */
+#tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  background: var(--card);
+  border-top: 1px solid var(--rule);
+}
+
+body:not(.training) #view {
+  padding-bottom: calc(12px + var(--nav-h));
+}
+
+body.training #tabbar {
+  display: none;
+}
+
+#tabbar .tab {
+  flex: 1;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#tabbar .tab.active {
+  color: var(--focus);
+  background: var(--paper);
+  border-color: var(--rule);
 }
 
 /* ===== 动效只有三处：底色过渡 240ms、单格点亮 120ms、点错抖动 200ms =====

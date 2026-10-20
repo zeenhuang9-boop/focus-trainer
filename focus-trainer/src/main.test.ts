@@ -21,9 +21,12 @@ type MainModule = typeof import('./main');
 //    否则 `ctx.repo instanceof MemoryRepository` 就成了拿假类自证。
 // 2) renderHome 只是路过记一笔实参，真实实现照常执行 —— 页面真正拿到的 ctx 长什么样必须能读到，
 //    storageOk 没有任何页面把它渲染出来（全仓 grep 只见 main.ts 与两个测试自己造 ctx），别处观测不到。
+//    renderLibrary 开的是同一条形状的第二支：show() 里 games 分支走没走到库页，
+//    光看视图文本会被「renderHome 的第 4 参有默认值」这种误写骗过去（tsc 与其余用例全绿）。
 const recorder = vi.hoisted(() => ({
   openIdbRepository: vi.fn(),
   home: [] as Array<{ view: HTMLElement; ctx: AppContext; signal: AbortSignal }>,
+  library: [] as Array<{ view: HTMLElement; ctx: AppContext; signal: AbortSignal }>,
 }));
 
 vi.mock('./core/storage', async (importOriginal) => {
@@ -38,6 +41,17 @@ vi.mock('./ui/pages/home', async (importOriginal) => {
     renderHome: (view: HTMLElement, ctx: AppContext, signal: AbortSignal): Promise<void> => {
       recorder.home.push({ view, ctx, signal });
       return actual.renderHome(view, ctx, signal);
+    },
+  };
+});
+
+vi.mock('./ui/pages/library', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ui/pages/library')>();
+  return {
+    ...actual,
+    renderLibrary: (view: HTMLElement, ctx: AppContext, signal: AbortSignal): Promise<void> => {
+      recorder.library.push({ view, ctx, signal });
+      return actual.renderLibrary(view, ctx, signal);
     },
   };
 });
@@ -143,6 +157,14 @@ class StubEl {
     return this.classes.has(name);
   }
 
+  /** 与 nav.test.ts 的桩同名同义：按 class 收集子树（页签与库页的行数都靠它数） */
+  byClass(cls: string): StubEl[] {
+    const out: StubEl[] = [];
+    if (this.classes.has(cls)) out.push(this);
+    for (const c of this.children) out.push(...c.byClass(cls));
+    return out;
+  }
+
   find(pred: (el: StubEl) => boolean): StubEl | null {
     if (pred(this)) return this;
     for (const c of this.children) {
@@ -169,7 +191,7 @@ function setupDom(initialHash = '#/') {
   // 否则用例 3「正常路径不出现这条提示」就退化成断言一个恒真的值。
   banner.hidden = true;
   const view = new StubEl('main');
-  const byId: Record<string, StubEl> = { banner, view };
+  const byId: Record<string, StubEl> = { banner, view, tabbar: new StubEl('nav') };
 
   // 假时钟：只喂给 rAF 回调。基准取真实 performance.now()，与 play.ts 的倒计时同源。
   let clock = Math.floor(performance.now());
@@ -316,6 +338,7 @@ function setupDom(initialHash = '#/') {
   return {
     banner,
     view,
+    tabbar: byId.tabbar,
     doc,
     queue,
     consoleError,
@@ -359,12 +382,14 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   recorder.home.length = 0;
+  recorder.library.length = 0;
   recorder.openIdbRepository.mockReset();
 });
 
 describe('boot() 的存储失败分支（spec §6 第一条）', () => {
   beforeEach(() => {
     recorder.home.length = 0;
+    recorder.library.length = 0;
     recorder.openIdbRepository.mockReset();
   });
 
@@ -504,5 +529,56 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
     expect(h.text()).not.toContain('启动失败');
     expect(h.text()).not.toContain('页面出错');
     expect(h.text()).not.toContain('保存失败');
+  });
+
+  // 页签外壳的三条 boot 级判据（Task 3）。只断言 DOM 桩上真实发生的事：
+  // nav.ts 的纯逻辑已由 src/ui/nav.test.ts 覆盖，这三条要证的是「main.ts 有没有把 renderNav 接上、
+  // 接的顺序对不对、games 分支走的是不是库页」。
+  it('#/ 时页签常驻：4 个链接、标签按今日/库/趋势/设置排、恰一条 aria-current=page', async () => {
+    const h = setupDom('#/');
+    const storage = await freshStorage();
+    recorder.openIdbRepository.mockResolvedValue(new storage.MemoryRepository());
+    await importMain();
+    await h.waitForHome();
+
+    expect(h.tabbar.hidden).toBe(false);
+    expect(h.tabbar.children.map((c) => c.textContent)).toEqual(['今日', '库', '趋势', '设置']);
+    expect(h.tabbar.children.filter((c) => c.attrs.get('aria-current') === 'page')).toHaveLength(1);
+  });
+
+  it('#/play/schulte/plan 时页签被隐藏并清空：训练中没有「离开这一轮」的入口', async () => {
+    const h = setupDom('#/play/schulte/plan');
+    const storage = await freshStorage();
+    recorder.openIdbRepository.mockResolvedValue(new storage.MemoryRepository());
+    await importMain();
+    await vi.waitFor(() => expect(h.view.textContent).toContain('舒尔特方格'), { timeout: 2000 });
+
+    expect(h.tabbar.hidden).toBe(true);
+    expect(h.tabbar.children).toHaveLength(0);
+    expect(h.tabbar.textContent).toBe('');
+  });
+
+  // T2 评审带出的补测：show() 里把 renderLibrary 误写成 renderHome(view, ctx, signal) 时，
+  // renderHome 的第 4 参有默认值 ⇒ tsc 与其余全部用例都是绿的，只有这条能拦住。
+  it('#/games 时 show() 真的走训练库那一支，页签的 aria-current 落在「库」上', async () => {
+    const h = setupDom('#/games');
+    const storage = await freshStorage();
+    recorder.openIdbRepository.mockResolvedValue(new storage.MemoryRepository());
+    await importMain();
+    await vi.waitFor(() => expect(recorder.library).toHaveLength(1), { timeout: 2000 });
+
+    const entry = recorder.library[0];
+    if (!entry) throw new Error('boot() 没有把训练库渲染出来');
+    expect(entry.ctx.storageOk).toBe(true);
+    expect(entry.view).toBe(h.view);
+    expect(entry.signal).toBeInstanceOf(AbortSignal);
+    expect(entry.signal.aborted).toBe(false);
+    expect(h.view.byClass('plan-row')).toHaveLength(5);
+    expect(h.tabbar.hidden).toBe(false);
+    const current = h.tabbar.children.filter((c) => c.attrs.get('aria-current') === 'page');
+    expect(current).toHaveLength(1);
+    expect(current[0]?.textContent).toBe('库');
+    // games 分支若误走首页，recorder.home 就会多出一笔而库页为空
+    expect(recorder.home).toHaveLength(0);
   });
 });

@@ -461,6 +461,64 @@ describe('renderPlay 的时钟契约', () => {
     expect(await h.repo.listSessions()).toHaveLength(1);
   });
 
+  it('连点两次「继续」不抛错，也不多推进一轮', async () => {
+    const h = setup();
+    await h.render();
+    toRound(h, 1);
+    h.playRound();
+    h.frameAt(h.step());
+    expect(h.session().snapshot().phase).toBe('between');
+    expect(h.session().snapshot().roundNo).toBe(2);
+    const begins = h.beginTimes().length;
+
+    // 真人快速连点走的就是这一个节点：onclick = resume()，只改 ui 并藏浮层，
+    // 开轮发生在下一帧，所以点几下都只对应一次 beginRound。
+    const cont = h.button('继续');
+    expect(() => {
+      cont.fire('click');
+      cont.fire('click');
+    }).not.toThrow();
+    // 没有帧被喂进来时一次都不开轮
+    expect(h.beginTimes()).toHaveLength(begins);
+    expect(h.session().snapshot().phase).toBe('between');
+    expect(h.session().snapshot().roundNo).toBe(2);
+    // 浮层当场隐藏：真实浏览器不会把指针事件投给 display:none 的节点
+    expect(h.overlay().hidden).toBe(true);
+
+    // 补一帧 → 两次点击只换来一次开轮，轮次仍推进到第 2 轮
+    h.frameAt(h.step());
+    expect(h.beginTimes()).toHaveLength(begins + 1);
+    const s = h.session().snapshot();
+    expect(s.phase).toBe('playing');
+    expect(s.roundNo).toBe(2);
+  });
+
+  it('开轮之后再点「继续」只有绕过命中测试才走得到：beginRound 照旧抛错，UI 不吞', async () => {
+    const h = setup();
+    await h.render();
+    toRound(h, 1);
+    h.playRound();
+    h.frameAt(h.step());
+    h.button('继续').fire('click');
+    h.frameAt(h.step());
+    expect(h.session().snapshot().phase).toBe('playing');
+
+    // 「继续」节点此时还挂在已隐藏的浮层里（showBreak 只在下次换浮层时 replaceChildren），
+    // 浏览器命中测试摸不到它；桩直接调 onclick 才能进来 —— 这正是那次
+    // Error: cannot begin a round while playing 的唯一来路（注入 harness 的双驱动帧循环）。
+    const stale = h.button('继续');
+    stale.fire('click');
+    expect(() => h.frameAt(h.step())).toThrow(/cannot begin a round while playing/);
+    // 原型桩把抛掉的那次调用也记了下来：3 次 beginRound 里只有前 2 次真的开了轮
+    expect(h.beginTimes()).toHaveLength(3);
+    const s = h.session().snapshot();
+    expect(s.phase).toBe('playing');
+    expect(s.roundNo).toBe(2);
+    // 抛错不被吞：frame 在 beginRound 那一步就断了，末尾的 rAF 没排出去 → 帧循环死掉。
+    // 这条断言守的是「不给时钟契约加 try/catch 兜底」的裁定，删掉它等于允许吞错。
+    expect(h.queue).toHaveLength(0);
+  });
+
   it('退出先确认：不同意留在原地，同意后摘监听且不落库', async () => {
     const h = setup();
     await h.render();

@@ -173,9 +173,22 @@ describe('calendarGrid', () => {
     expect(rects[0].getAttribute('y')).toBe('0.0');
     expect(rects[8].getAttribute('x')).toBe('44.0');
     expect(rects[8].getAttribute('y')).toBe('44.0');
+    expect(rects[7].getAttribute('x')).toBe('0.0');
+    expect(rects[7].getAttribute('y')).toBe('44.0');
     expect(rects[0].getAttribute('width')).toBe('40.0');
     expect(rects[0].getAttribute('rx')).toBe('6');
     expect(rects[34].getAttribute('class')).toBe('calendar-cell none');
+  });
+
+  it('格数不是 7 的倍数时按 ceil 补满一行（36 格 = 6 行，viewBox 308×260）', () => {
+    installStub();
+    const el = calendarGrid(calendarCells(games, [], TODAY, 36)) as unknown as StubSvg;
+    expect(el.getAttribute('viewBox')).toBe('0 0 308 260');
+    expect(el.getAttribute('aria-label')).toBe('近 6 周打卡日历');
+    const rects = el.byClass('calendar-cell');
+    expect(rects).toHaveLength(36);
+    expect(rects[35].getAttribute('x')).toBe('0.0');
+    expect(rects[35].getAttribute('y')).toBe('220.0');
   });
 
   it('三种状态各写进 class 与 <title>，数字取过滤后的 doneCount/planSize', () => {

@@ -28,6 +28,17 @@ const ratio = (fg: string, bg: string): number => {
 
 const px = (v: string | null | undefined): number => Number(v?.replace('px', '') ?? Number.NaN);
 
+// 某个选择器出现过的所有规则体（含分组选择器）。decl() 只认「选择器后紧跟 {」的单条规则，
+// 分组规则要看「这条属性有没有出现在任一相关块里」时必须用它。
+// 先把注释剥掉：本文件的注释紧贴在选择器前面，不剥的话 m[1] 会把注释一起吞进来，
+// 选择器列表就匹配不到精确的 '.radar-none' 这种写法。
+function blocksFor(selector: string): string[] {
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  return [...noComments.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .filter((m) => m[1].split(',').some((s) => s.trim() === selector))
+    .map((m) => m[2]);
+}
+
 describe('完成态可读性（M1 遗留缺陷 1）', () => {
   it('done 格不再用 opacity 抹掉数字，改为一对专用颜色变量', () => {
     expect(decl('.schulte-cell.done', 'opacity')).toBeNull();
@@ -89,6 +100,16 @@ describe('趋势页样式与离线红线', () => {
     // Task 2 报告标为「必需」的一条：末点标签 x=312 若按默认 start 锚定会溢出 320 的 viewBox，
     // 桩测只断 fullText，测不到，所以必须由 CSS 文本判据钉住。
     expect(decl('.curve-edge.edge-end', 'text-anchor')).toBe('end');
+  });
+
+  it('轴标签的 text-anchor 只由 charts.ts 写成呈现属性，CSS 不再声明（声明会盖掉属性）', () => {
+    // 呈现属性 = 作者级、特异度 0，任何带选择器的 CSS 规则都能盖掉它。
+    // M3 验收 F1 的第二个根因就在这里：原组规则把 .radar-label 的 text-anchor 钉死成 middle，
+    // charts.ts 按象限发的 start/end 在浏览器里等于没发。
+    expect(blocksFor('.radar-label').some((b) => /text-anchor/.test(b))).toBe(false);
+    // 同组拆出去的 .radar-none / .curve-edge 仍要有 middle，否则降级文案与日期标签会左偏
+    expect(blocksFor('.radar-none').some((b) => /text-anchor:\s*middle/.test(b))).toBe(true);
+    expect(blocksFor('.curve-edge').some((b) => /text-anchor:\s*middle/.test(b))).toBe(true);
   });
 
   it('整份 CSS 里没有任何外部地址、@import、@font-face 或 url()', () => {

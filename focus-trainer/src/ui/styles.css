@@ -554,6 +554,13 @@ button:disabled {
 .curve-edge {
   fill: var(--muted);
   font-size: 12px;
+}
+
+/* 轴标签的 text-anchor 由 charts.ts 按象限写成呈现属性。呈现属性算「作者级、特异度 0」，
+   会被任何 CSS 规则盖掉，所以 .radar-label 绝不能留在这条 text-anchor 组里 ——
+   留了就等于把 start/end 全拉回 middle，右侧标签继续被裁（M3 验收 F1）。 */
+.radar-none,
+.curve-edge {
   text-anchor: middle;
 }
 

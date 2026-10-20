@@ -71,33 +71,74 @@ describe('radarChart', () => {
     { gameId: 'schulte', ability: '持续注意', value: 50, practiced: true },
     { gameId: 'stroop', ability: '抑制控制', value: 0, practiced: false },
   ];
+  // 浏览器里被裁的就是 5 轴这一档（注册表长度），夹具按 registry 顺序取真实的 5 条能力名。
+  const fiveAxes: RadarAxis[] = [
+    { gameId: 'schulte', ability: '持续注意', value: 50, practiced: true },
+    { gameId: 'stroop', ability: '抑制控制', value: 60, practiced: true },
+    { gameId: 'seqmem', ability: '工作记忆', value: 70, practiced: true },
+    { gameId: 'mot', ability: '动态感知', value: 40, practiced: true },
+    { gameId: 'gestalt', ability: '完型整合', value: 30, practiced: true },
+  ];
 
-  it('320×320 下画 4 圈、2 轴、1 多边形、2 个轴标签，坐标按 p() 保留一位小数', () => {
+  it('420×340 下画 4 圈、2 轴、1 多边形、2 个轴标签，坐标按 p() 保留一位小数', () => {
     installStub();
     const el = radarChart(axes) as unknown as StubSvg;
-    expect(el.getAttribute('viewBox')).toBe('0 0 320 320');
+    expect(el.getAttribute('viewBox')).toBe('0 0 420 340');
     expect(el.getAttribute('role')).toBe('img');
     expect(el.getAttribute('aria-label')).toBe('能力雷达图');
-    expect(el.byClass('radar-ring').map((c) => c.getAttribute('r'))).toEqual(['33.0', '66.0', '99.0', '132.0']);
+    // R = min(420,340)/2 - 40 = 130
+    expect(el.byClass('radar-ring').map((c) => c.getAttribute('r'))).toEqual(['32.5', '65.0', '97.5', '130.0']);
     expect(el.byClass('radar-axis').map((c) => `${c.getAttribute('x2')},${c.getAttribute('y2')}`)).toEqual([
-      '160.0,28.0',
-      '160.0,292.0',
+      '210.0,40.0',
+      '210.0,300.0',
     ]);
     expect(el.byClass('radar-area')).toHaveLength(1);
-    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('160.0,94.0 160.0,160.0');
+    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('210.0,105.0 210.0,170.0');
+    // 标签半径 R + 20 = 150：顶部 y = 170 - 150 = 20，底部 y = 170 + 150 = 320
     expect(el.byClass('radar-label').map((c) => c.getAttribute('x') + '|' + c.getAttribute('y'))).toEqual([
-      '160.0|8.0',
-      '160.0|312.0',
+      '210.0|20.0',
+      '210.0|320.0',
     ]);
+    // 两轴时两条轴都在正上/正下（cos ≈ 0），锚点必须仍是 middle
+    expect(el.byClass('radar-label').map((c) => c.getAttribute('text-anchor'))).toEqual(['middle', 'middle']);
     expect(el.byClass('radar-label').map((c) => c.fullText)).toEqual(['持续注意', '抑制控制']);
+  });
+
+  it('5 轴时标签按象限锚定：正上 middle、右侧 start、左侧 end', () => {
+    installStub();
+    const el = radarChart(fiveAxes) as unknown as StubSvg;
+    // angle(i) = -90° + i·72° ⇒ -90 / -18 / 54 / 126 / 198，cos = 0 / +0.951 / +0.588 / -0.588 / -0.951
+    expect(el.byClass('radar-label').map((c) => c.getAttribute('text-anchor'))).toEqual([
+      'middle',
+      'start',
+      'start',
+      'end',
+      'end',
+    ]);
+  });
+
+  it('标签锚点留得出字形宽度：最右 x ≤ 376、最左 x ≥ 44、最上 y ≥ 16', () => {
+    installStub();
+    const el = radarChart(fiveAxes) as unknown as StubSvg;
+    // node 里没有排版引擎，量不了 getBoundingClientRect，只能守「锚点 + 4 个 CJK 字」这条算式
+    const labels = el.byClass('radar-label');
+    const xs = labels.map((c) => Number(c.getAttribute('x')));
+    const ys = labels.map((c) => Number(c.getAttribute('y')));
+    expect(xs).toHaveLength(5);
+    expect(ys).toHaveLength(5);
+    expect(xs.every(Number.isFinite)).toBe(true);
+    // 12px 字号下 4 个 CJK 字约 44〜48：右侧 start 向右展、左侧 end 向左收，各让 44
+    expect(Math.max(...xs)).toBeLessThanOrEqual(420 - 44);
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(44);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(16);
   });
 
   it('超过 100 或负数的 value 被夹到 [0,100]，多边形不会捅出外圈', () => {
     installStub();
     const el = radarChart([{ gameId: 'schulte', ability: 'a', value: 120, practiced: true }]) as unknown as StubSvg;
-    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('160.0,28.0');
+    expect(el.byClass('radar-area')[0].getAttribute('points')).toBe('210.0,40.0');
     const el2 = radarChart([{ gameId: 'schulte', ability: 'a', value: -5, practiced: true }]) as unknown as StubSvg;
-    expect(el2.byClass('radar-area')[0].getAttribute('points')).toBe('160.0,160.0');
+    expect(el2.byClass('radar-area')[0].getAttribute('points')).toBe('210.0,170.0');
   });
 
   it('轴数为 0 时只出一句降级文案，不画圈也不画轴', () => {

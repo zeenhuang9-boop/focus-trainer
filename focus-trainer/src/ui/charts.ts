@@ -25,10 +25,13 @@ export function svg<K extends keyof SVGElementTagNameMap>(
   return el;
 }
 
-export function radarChart(axes: readonly RadarAxis[], w = 320, h = 320): SVGSVGElement {
+// 默认画布比曲线图宽一档，是为了给 5 个轴标签留出文字区：320 宽的画布上标签锚点在
+// x≈305，4 个 CJK 字（12px 字号约 44〜48px）从锚点向右排就直接越出 svg 边界（M3 浏览器验收
+// 实测 5/5 标签被裁）。R 周围同样留 40 的余量，顶部标签基线才压得住字形上伸。
+export function radarChart(axes: readonly RadarAxis[], w = 420, h = 340): SVGSVGElement {
   const cx = w / 2;
   const cy = h / 2;
-  const R = Math.min(w, h) / 2 - 28;
+  const R = Math.min(w, h) / 2 - 40;
   const root = svg('svg', { viewBox: `0 0 ${w} ${h}`, class: 'radar-svg', role: 'img', 'aria-label': '能力雷达图' });
   const n = axes.length;
   if (n === 0) {
@@ -57,7 +60,24 @@ export function radarChart(axes: readonly RadarAxis[], w = 320, h = 320): SVGSVG
   );
   axes.forEach((axis, i) => {
     const rad = angle(i);
-    root.append(svg('text', { class: 'radar-label', x: p(cx + (R + 20) * Math.cos(rad)), y: p(cy + (R + 20) * Math.sin(rad)) }, axis.ability));
+    const cos = Math.cos(rad);
+    // SVG 默认 start（文字从锚点向右排），右侧轴会把字推出画布；左侧轴的锚点本身就在
+    // 画布左缘之外。按象限锚定：右=start、左=end、正上/正下=middle。
+    // |cos| ≤ 0.1 视为「正上/正下」，因为 cos(-Math.PI/2) 不是严格的 0 而是 6.1e-17。
+    let anchor = 'middle';
+    if (cos > 0.1) {
+      anchor = 'start';
+    }
+    if (cos < -0.1) {
+      anchor = 'end';
+    }
+    root.append(
+      svg(
+        'text',
+        { class: 'radar-label', 'text-anchor': anchor, x: p(cx + (R + 20) * cos), y: p(cy + (R + 20) * Math.sin(rad)) },
+        axis.ability,
+      ),
+    );
   });
   return root;
 }

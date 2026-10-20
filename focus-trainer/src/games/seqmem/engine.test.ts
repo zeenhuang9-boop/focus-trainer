@@ -15,19 +15,22 @@ function fresh(level: number, seed = 42, roundNo = 1, start = 0): SeqmemEngine {
 }
 
 // 从 from 起按帧网格推进，返回相位第一次满足 cond 的那一帧
+// F-1：帧时刻一律整数下标换算（from + i * STEP），不许 t += STEP 累加。
+// epoch 毫秒原点（1.7e12，ulp = 2^-12 ≈ 0.000244）配分数步长时累加必带漂移，
+// 末帧会落在边界之前、永远喂不到断言依赖的那一帧（见下方 F-1 用例的实测数字）。
 function tickUntil(
   eng: SeqmemEngine,
   from: number,
   cond: (s: SeqmemSnapshot) => boolean,
   limit = 120000,
 ): { t: number; s: SeqmemSnapshot } {
-  let t = from;
-  for (;;) {
+  const maxI = Math.ceil(limit / STEP);
+  for (let i = 0; ; i++) {
+    const t = from + i * STEP;
     eng.tick(t);
     const s = eng.snapshot();
     if (cond(s)) return { t, s };
-    if (t >= from + limit) return { t, s };
-    t += STEP;
+    if (i >= maxI) return { t, s };
   }
 }
 
@@ -35,13 +38,12 @@ function tickUntil(
 // 「与上一个不同就记录」之所以等价于播放顺序，是因为 makeSpan 保证相邻两项不同（裁定 R-2）。
 function watchShow(eng: SeqmemEngine, from: number): { seq: number[]; t: number; s: SeqmemSnapshot } {
   const seq: number[] = [];
-  let t = from;
-  for (;;) {
+  for (let i = 0; ; i++) {
+    const t = from + i * STEP; // F-1：整数下标，不累加
     eng.tick(t);
     const s = eng.snapshot();
     if (s.litIndex !== null && s.litIndex !== seq[seq.length - 1]) seq.push(s.litIndex);
     if (s.phase === 'recall') return { seq, t, s };
-    t += STEP;
   }
 }
 
@@ -132,8 +134,9 @@ describe('SeqmemEngine 配置与播放', () => {
     const run = (seed: number): (number | null)[] => {
       const eng = fresh(3, seed, 1, 0);
       const marks: (number | null)[] = [];
-      for (let t = 0; t <= 3000; t += 20) {
-        eng.tick(t);
+      const n = Math.floor(3000 / 20); // F-1：整数下标算帧时刻
+      for (let i = 0; i <= n; i++) {
+        eng.tick(i * 20);
         marks.push(eng.snapshot().litIndex);
       }
       return marks;
@@ -234,12 +237,12 @@ describe('SeqmemEngine 回忆判定', () => {
     // 回放：按播放顺序重播，wrongIndex 在回放开始时清掉
     const replay: number[] = [];
     let t = 3500;
-    while (eng.snapshot().phase === 'replay') {
+    for (let i = 0; eng.snapshot().phase === 'replay'; i++) {
+      t = 3500 + i * STEP; // F-1：整数下标算帧时刻
       eng.tick(t);
       const lit = eng.snapshot().litIndex;
       if (lit !== null && lit !== replay[replay.length - 1]) replay.push(lit);
       if (eng.snapshot().phase !== 'replay') break;
-      t += STEP;
     }
     expect(replay).toEqual(shown.seq);
     expect(eng.snapshot().wrongIndex).toBeNull();
@@ -348,9 +351,14 @@ describe('SeqmemEngine 回忆判定', () => {
 
 const GRID = 50; // = FRAME_MS，恰好「等于」阈值，严格大于才作废
 
+// F-1：整数下标算时刻，不许浮点累加。
+// 旧写法 for (let t = from; t <= to; t += step) 在 epoch 毫秒原点（1.7e12，ulp = 2^-12 ≈ 0.000244）
+// 配分数步长（如 rAF 的 1000/60）时误差逐步累积，末帧落在 1700000002983.348 < to，
+// 断言依赖的边界帧（showEndAt / 超时判定）永远喂不到。下方 F-1 用例锁住这个行为。
 function range(from: number, to: number, step = GRID): number[] {
   const out: number[] = [];
-  for (let t = from; t <= to; t += step) out.push(t);
+  const n = Math.floor((to - from) / step);
+  for (let i = 0; i <= n; i++) out.push(from + i * step);
   return out;
 }
 
@@ -431,6 +439,26 @@ describe('SeqmemEngine 帧间隔判定', () => {
     const dirty = finishByWrongTap(fresh(1, 42, 1, 0), [...range(0, 750), ...range(900, 3000)]);
     expect(dirty.timingValid).toBe(false);
     expect({ ...dirty, timingValid: true }).toEqual(clean);
+  });
+});
+
+describe('SeqmemEngine 帧网格夹具（F-1：整数下标算时刻）', () => {
+  it('epoch 原点 + 分数步长：range 必须喂到名义末帧（浮点累加实测只喂到 180 帧、末帧差 16.65ms）', () => {
+    const from = 1_700_000_000_000; // rAF 时间戳量级：ulp = 2^-12 ≈ 0.000244
+    const step = 1000 / 60; // 60fps 帧长，二进制下是无限小数 → 累加必漂移
+    const to = from + 3000;
+    const frames = range(from, to, step);
+    // 旧累加写法（node 实测）：180 帧，末帧 1700000002983.348 < to，第 181 帧永不喂出。
+    expect(frames).toHaveLength(181);
+    expect(frames[frames.length - 1]).toBe(from + 180 * step);
+    expect(frames.every((t, i) => t === from + i * step)).toBe(true);
+  });
+
+  it('同一夹具喂引擎：末帧必须踩中 showEndAt 切到 recall，而不是差 16.65ms 卡在 show', () => {
+    const E = 1_700_000_000_000;
+    const eng = fresh(1, 42, 1, E); // 1 档：showEndAt = E + (3-1)*1100 + 800 = E + 3000
+    collectShow(eng, range(E, E + 3000, 1000 / 60));
+    expect(eng.snapshot().phase).toBe('recall');
   });
 });
 

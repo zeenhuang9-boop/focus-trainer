@@ -36,7 +36,7 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
     '清空数据',
   );
   view.replaceChildren(
-    h('div', { class: 'row' }, h('button', { onclick: () => navigate({ name: 'home' }) }, '返回'), h('h1', null, '设置')),
+    h('h1', null, '设置'),
     h('div', { class: 'card' }, h('span', null, '每日分界时间'), h('span', { class: 'spacer' }), select),
     note,
     clear,

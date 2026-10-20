@@ -318,11 +318,11 @@ describe('renderTrends', () => {
     expect(h.view.children).toHaveLength(0);
   });
 
-  it('返回按钮走 navigate 回首页', async () => {
+  it('趋势页不再自带返回首页的按钮：页签常驻，重复出口就是噪声', async () => {
     const h = setup();
     await h.render();
-    h.button('返回').fire('click');
-    expect(h.hashSet).toEqual(['#/']);
+    expect(h.view.textContent).not.toContain('返回');
+    expect(h.view.all((e) => e.tag === 'button' && e.textContent === '返回')).toHaveLength(0);
   });
 
   it('记录再多也不改变渲染上限：600 条记录仍是 35 格 + ≤30 点 + 2 轴', async () => {

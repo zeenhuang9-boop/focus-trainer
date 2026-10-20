@@ -1,7 +1,7 @@
 import { h } from './dom';
 import { href, type Route } from './router';
 
-export interface Tab {
+interface Tab {
   readonly route: Route;
   readonly label: string;
 }

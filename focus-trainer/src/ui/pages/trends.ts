@@ -15,7 +15,6 @@ import { GAMES, getGame } from '../../games/registry';
 import { calendarGrid, lineChart, radarChart } from '../charts';
 import type { AppContext } from '../context';
 import { h } from '../dom';
-import { navigate } from '../router';
 
 export async function renderTrends(
   view: HTMLElement,
@@ -72,7 +71,7 @@ export async function renderTrends(
   );
 
   view.replaceChildren(
-    h('div', { class: 'row' }, h('button', { onclick: () => navigate({ name: 'home' }) }, '返回'), h('h1', null, '趋势')),
+    h('h1', null, '趋势'),
     h(
       'div',
       { class: 'card trend-streak' },

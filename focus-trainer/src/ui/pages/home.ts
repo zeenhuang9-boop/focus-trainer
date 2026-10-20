@@ -108,7 +108,6 @@ export async function renderHome(view: HTMLElement, ctx: AppContext, signal: Abo
   };
 
   const planRows = plan.games.map((id) => row(id, 'plan', plan.completed.includes(id)));
-  const freeRows = GAMES.map((g) => row(g.id, 'free', false));
 
   const start = h(
     'button',
@@ -141,13 +140,5 @@ export async function renderHome(view: HTMLElement, ctx: AppContext, signal: Abo
     h('div', { class: 'section-head' }, h('span', { class: 'eyebrow' }, 'today'), h('h2', null, '今日计划')),
     h('div', { class: 'list' }, ...planRows),
     start,
-    h('div', { class: 'section-head' }, h('span', { class: 'eyebrow' }, 'free'), h('h2', null, '自由练')),
-    h('div', { class: 'list' }, ...freeRows),
-    h(
-      'div',
-      { class: 'row' },
-      h('button', { onclick: () => navigate({ name: 'trend' }) }, '趋势'),
-      h('button', { onclick: () => navigate({ name: 'settings' }) }, '设置'),
-    ),
   );
 }

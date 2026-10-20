@@ -362,16 +362,16 @@ describe('renderHome 的计划行与入口', () => {
     expect(first.byClass('plan-meta')[0].textContent).toBe('第 1 档');
   });
 
-  it('自由练列出注册表里的全部游戏，点进去是 free 模式', async () => {
+  it('自由练已经搬走：首页只剩今日计划三行，也不再自带趋势/设置出口', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(EPOCH);
     const h = setup();
     await h.render();
-    const rows = h.view.byClass('plan-row').slice(3);
-    expect(rows).toHaveLength(GAMES.length);
-    expect(rows.map((r) => r.byClass('eyebrow')[0].textContent)).toEqual(GAMES.map((g) => g.id));
-    rows[4].find((x) => x.tag === 'button' && x.textContent === '去练')?.fire('click');
-    expect(h.hashSet).toEqual([`#/play/${GAMES[4].id}/free`]);
+    expect(h.view.byClass('plan-row')).toHaveLength(3);
+    expect(h.view.byClass('list')).toHaveLength(1);
+    expect(h.view.textContent).not.toContain('自由练');
+    expect(h.view.textContent).not.toContain('趋势');
+    expect(h.view.textContent).not.toContain('设置');
   });
 
   it('今日还有未练项时「开始训练」跳第一项，全打完后换成禁用的「今日完成」', async () => {
@@ -387,15 +387,5 @@ describe('renderHome 的计划行与入口', () => {
     await done.render();
     expect(done.findButton('开始训练')).toBeNull();
     expect(done.button('今日完成').disabled).toBe(true);
-  });
-
-  it('趋势与设置两个出口都在页面底部，点得动', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(EPOCH);
-    const h = setup();
-    await h.render();
-    h.button('趋势').fire('click');
-    h.button('设置').fire('click');
-    expect(h.hashSet).toEqual(['#/trend', '#/settings']);
   });
 });

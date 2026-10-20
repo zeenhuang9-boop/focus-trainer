@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-// 仓库未安装 @types/node（硬规则：不新增依赖），而时钟纪律扫描必须读源码文本；
-// node 运行时里这两个模块真实存在、vitest 照常解析，只给 tsc 各留一行豁免。
-// @ts-expect-error 无 @types/node：TS2307 找不到 'node:fs' 的类型声明
+// 时钟纪律扫描要读源码文本；node 类型由 @capacitor/cli 传递带入，仓库不直接声明
 import { readFileSync } from 'node:fs';
-// @ts-expect-error 无 @types/node：TS2307 找不到 'node:url' 的类型声明
 import { fileURLToPath } from 'node:url';
 import { addDays } from './daykey';
 import {

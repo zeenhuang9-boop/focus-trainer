@@ -1,6 +1,4 @@
-// 仓库未安装 @types/node（硬规则：不新增依赖），而纪律扫描必须读源码文本；
-// node 运行时里该模块真实存在、vitest 照常解析，这里只给 tsc 留一行豁免（装了 @types/node 后会主动报错提醒删掉）。
-// @ts-expect-error 无 @types/node：TS2307 找不到 'node:fs' 的类型声明
+// 纪律扫描要读源码文本；node 类型由 @capacitor/cli 传递带入，仓库不直接声明
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GameView, InputEvent } from '../../core/types';

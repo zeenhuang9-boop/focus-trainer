@@ -276,6 +276,22 @@ describe('底部页签与正文避让', () => {
     expect(decl('#tabbar .tab', 'text-decoration')).toBe('none');
   });
 
+  // SF-1：避让量（--nav-h）和避让对象（#tabbar 自己的竖向 padding + .tab 的 min-height）
+  // 是两处独立书写、只靠人记住「它们相等」的数；上面那条钉的是 --nav-h 的字面量，钉不住这层算术关系。
+  // 计划「后置」第 4 条已经预告了「页签改成带图标的 72px」这类改动 —— 那正是会把最后一行
+  // 静默压进页签的改动，改完而全量门槛照样绿，就是本文件要拦的那类陷阱。
+  // 这里刻意不把 border-top 的 1px 折进算式：60 vs 61 的余量是台账已裁的事项，不重开。
+  it('--nav-h 不小于页签自己的实占（竖向 padding 两端 + .tab 的 min-height），否则正文避让静默失效', () => {
+    // padding 是「上 左右 下」的三值简写，下端写成 calc(6px + env(safe-area-inset-bottom))，
+    // 所以按出现顺序取 \d+ 得到 [上, 左右, 下]；四值简写同样是 [0]=上、[2]=下，
+    // 一值/两值时 CSS 的简写语义就是下端等于上端。env() 恒 ≥0，只会把页签顶得更高，
+    // 不在这条算式里扣减 —— 真机上它是 SF-1 之后剩下的唯一观感残余（终审 §4 R1）。
+    const pads = [...decl('#tabbar', 'padding')!.matchAll(/\d+/g)].map((m) => Number(m[0]));
+    const [topPad = Number.NaN, , bottomPad = topPad] = pads;
+    // --tap 这一项由上面那条 it 钉在 #tabbar .tab 的 min-height 上，两端是同一个变量。
+    expect(px(decl(':root', '--nav-h'))).toBeGreaterThanOrEqual(topPad + bottomPad + px(decl(':root', '--tap')));
+  });
+
   it('当前页用颜色区分，不用 opacity', () => {
     expect(decl('#tabbar .tab.active', 'opacity')).toBeNull();
     expect(decl('#tabbar .tab.active', 'color')).toBe('var(--focus)');
@@ -288,5 +304,21 @@ describe('底部页签与正文避让', () => {
 
   it('训练路由里页签隐藏由 body.training 兜第二层，JS 的 hidden 是第一层', () => {
     expect(blocksFor('body.training #tabbar').some((b) => /display:\s*none/.test(b))).toBe(true);
+  });
+
+  // SF-3：结算页（#/result/N）的页签只剩这一条隐藏点，所以这条 !important 是承重的，不是风格。
+  // 为什么只有 !important 才赢：#tabbar 自己写着作者声明 display: flex（下面 it 里第一条断言钉的就是它），
+  // 而作者样式恒胜 UA 样式表里的 [hidden]{display:none}，无论特异度（[hidden] 只有 0,1,0，#tabbar 是 1,0,0，
+  // 平时更是后来者胜）—— 只有带 !important 的作者声明才压得过它。
+  // 少了它谁会露出来：结算页。play.ts:209 在 abort 回调里已经把 .training 摘掉，
+  // 结算态 body.className 是空的 ⇒ 上面那条 body.training #tabbar 的第二层在结算页根本不参与，
+  // nav.ts 的 root.hidden（第一层）就是唯一的隐藏动作，而它全靠这条 !important 才真的藏得住。
+  // 表现不是崩溃，是「训练完的结算页底部多出一条空白、一个字都没有、点不动的页签条」——
+  // 正是本轮分页要消灭的那类噪声，所以这条一个字都不许松。
+  it('[hidden] 的 display:none 必须带 !important：它是结算页页签唯一的承重点', () => {
+    // 对着干的那一端也必须钉住：#tabbar 一旦不再自带 display，本条 !important 的承重理由就变了，
+    // 该由改这个测试的人重新判断，而不是静默留一条已经没有对手的规则。
+    expect(decl('#tabbar', 'display')).toBe('flex');
+    expect(decl('[hidden]', 'display')).toBe('none !important');
   });
 });

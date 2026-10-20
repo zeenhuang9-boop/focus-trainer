@@ -7,7 +7,7 @@ import type { AppContext } from './ui/context';
 // 所以文案写错、banner 为 null、内存仓库少实现一个方法这三种情况现在都不会被发现。
 //
 // 环境是 vitest 的 node、没有 jsdom，DOM 全靠下面这套手写桩（风格照 src/ui/pages/play.test.ts）：
-// document.getElementById('banner'|'view') / createElement / addEventListener(带 signal 摘监听) /
+// document.getElementById('banner'|'view'|'tabbar') / document.body / createElement / addEventListener(带 signal 摘监听) /
 // visibilityState、Element 与 HTMLButtonElement（instanceof 判定用）、window 的 hashchange 监听与
 // dispatchEvent、location.hash、history.replaceState、navigator.storage.persist、
 // requestAnimationFrame / cancelAnimationFrame、confirm、HashChangeEvent，外加 console.error 与
@@ -191,6 +191,12 @@ function setupDom(initialHash = '#/') {
   // 否则用例 3「正常路径不出现这条提示」就退化成断言一个恒真的值。
   banner.hidden = true;
   const view = new StubEl('main');
+  // document.body 这层桩沿用 library.test.ts / home.test.ts 的写法（new StubEl('body')，
+  // classList 走 StubEl 已有的 getter，读回用 hasClass）。play.ts:91/:209 走的是
+  // document.body?.classList.toggle('training', …) —— 那个可选链只因为视图测试的手写桩没有 body，
+  // 分页之后 .training 除了刺激区配色还同时决定四页有没有底部避让（styles.css 的 body:not(.training) #view），
+  // 所以它的加与摘必须在 boot 级被观测到，全仓只有这一条 document.body 消费点。
+  const body = new StubEl('body');
   const byId: Record<string, StubEl> = { banner, view, tabbar: new StubEl('nav') };
 
   // 假时钟：只喂给 rAF 回调。基准取真实 performance.now()，与 play.ts 的倒计时同源。
@@ -218,6 +224,7 @@ function setupDom(initialHash = '#/') {
 
   const doc = {
     visibilityState: 'visible',
+    body,
     getElementById: (id: string): StubEl | null => byId[id] ?? null,
     createElement: (tag: string): StubEl => (tag === 'button' ? new StubButton(tag) : new StubEl(tag)),
     addEventListener: (type: string, fn: (ev: never) => void, opts?: { signal?: AbortSignal }): void => {
@@ -339,6 +346,7 @@ function setupDom(initialHash = '#/') {
     banner,
     view,
     tabbar: byId.tabbar,
+    body,
     doc,
     queue,
     consoleError,
@@ -556,6 +564,29 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
     expect(h.tabbar.hidden).toBe(true);
     expect(h.tabbar.children).toHaveLength(0);
     expect(h.tabbar.textContent).toBe('');
+  });
+
+  // SF-2：.training 的加与摘此前零测试面 —— 终审把 play.ts:209 摘 class 那处的 false 改成 true
+  // （等价于「离开训练后 .training 永远摘不掉」），tsc 与全量用例都是绿的（M-6）。分页之后这条耦合变重了：
+  // 摘不掉 ⇒ 今日/库/趋势/设置同时失去 72px 底部避让（最后一行压进页签），并且纸面继续吃刺激区的深底取值。
+  // 走的是用户真实的离开通路，不是造出来的钩子：点训练页的「退出」，此时 ui==='intro' ⇒ navigate({name:'home'})
+  // 不经过 confirm，剩下的交给真代码：location.hash → hashchange → main.ts 的 current?.abort() → play.ts 的 abort 回调。
+  it('进训练给 body 挂 .training、点「退出」离开训练必须摘掉：摘不掉就同时失去底部避让与纸面配色', async () => {
+    const h = setupDom('#/play/schulte/plan');
+    const storage = await freshStorage();
+    recorder.openIdbRepository.mockResolvedValue(new storage.MemoryRepository());
+    await importMain();
+    // 渲染闸门沿用上一条：舒尔特真的装出来了，play.ts:91 那行才真的执行过
+    await vi.waitFor(() => expect(h.view.textContent).toContain('舒尔特方格'), { timeout: 2000 });
+    expect(h.body.hasClass('training')).toBe(true);
+
+    expect(() => h.button('退出').fire('click')).not.toThrow();
+    expect(h.hash()).toBe('#/');
+    // 桩里 location.hash 的 setter 同步派发 hashchange ⇒ 点「退出」这一刻 main.ts 的 current?.abort()
+    // 与 play.ts 的 abort 回调都已经跑完；但收尾仍要等纸面页渲染完，否则 renderHome 的异步尾巴会落在
+    // afterEach 的 vi.unstubAllGlobals() 之后，变成一条 document is not defined 的 unhandled rejection。
+    await h.waitForHome();
+    expect(h.body.hasClass('training')).toBe(false);
   });
 
   // T2 评审带出的补测：show() 里把 renderLibrary 误写成 renderHome(view, ctx, signal) 时，

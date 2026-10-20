@@ -335,6 +335,37 @@ describe('底部页签与正文避让', () => {
     expect(decl('#view', 'gap')).toBe('16px');
   });
 
+  // 上面那条 #view 判据的注释里已经点名 #app{min-height:100%}，但 flex:1 只有和外壳的
+  // display:flex + flex-direction:column + min-height:100% 合起来才成立 —— 这一半此前同样零断言。
+  // 控制器实测：删掉 styles.css:86 的 display: flex 整行，43 文件 / 521 用例全绿，
+  // 塌的是真机布局（四页正文退回块流，短页不再被顶满视口），拦不住它就不是「门槛」了。
+  // 三条各取精确值，形状与上一条 it 一致：不写 not.toBeNull()，值被改成 grid/row 也要红。
+  it('正文外壳 #app 的三条承重：min-height:100% + display:flex + flex-direction:column（删掉 display:flex 曾经静默全绿），第四条安全区 padding 只钉书写层', () => {
+    // 承重的是「三条一起」而不是任何单条：html,body{height:100%}（styles.css:62-66）给
+    // min-height 的百分比供上可解析的基准，display:flex 让 #view 成为 flex item，
+    // flex-direction:column 让 flex:1 沿竖向生效。三条任一被删，验收记录 §14.1 那句
+    // 「训练库/设置的 scrollHeight 844 是视口下限、真实内容高 576/307」的口径就整段作废
+    // —— 那张表的「一屏装得下」四条判据全部读的是这一列数，反推也一并失去依据。
+    // 注意这条只断 min-height 写在规则里且取值是 100%：百分比相对 body 的内容高还是
+    // 边框盒，是层叠与盒模型的事，node 环境（无 jsdom）看不见，本文件不主张已验证。
+    expect(decl('#app', 'min-height')).toBe('100%');
+    // 删掉这一行 = 当时静默的那一下。#app 退回普通块容器后 #view 的 flex:1 是死声明。
+    expect(decl('#app', 'display')).toBe('flex');
+    // 只把 column 换成 row：#app 还是 flex 容器，但 flex:1 的成长轴从竖向搬到了横向，
+    // 「短页被顶满视口」不再由规则保证，§14.1 那一列 844 是下限的读法也就失去依据。
+    // 换掉之后具体渲染成什么样本文件测不到（node 环境、无 jsdom），这条要拦的是
+    // 「承重声明被换掉」这个动作本身 —— 所以取精确值，而不是 toBeNull() 那种「还在就算过」。
+    expect(decl('#app', 'flex-direction')).toBe('column');
+    // 第四条 padding 是刘海屏安全区记账，跟上面三条不同族：本仓既有裁定（验收记录 §14.5
+    // 「env(safe-area-inset-bottom) → 残余 → 真机」）是它在浏览器验收通道里恒为 0，
+    // 所以这条**只钉书写层** —— 断「四个 env() 还在、还是 top/right/bottom/left 这个顺序」，
+    // 保证有人把它改成 padding: 0（或调换顺序、或只留一端）时门槛当场拦住。
+    // 它不证明真机上安全区已经生效，那仍然只能上机看；把这条读成「已验证」就是误用。
+    expect(decl('#app', 'padding')).toBe(
+      'env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)',
+    );
+  });
+
   it('训练路由里页签隐藏由 body.training 兜第二层，JS 的 hidden 是第一层', () => {
     expect(blocksFor('body.training #tabbar').some((b) => /display:\s*none/.test(b))).toBe(true);
   });

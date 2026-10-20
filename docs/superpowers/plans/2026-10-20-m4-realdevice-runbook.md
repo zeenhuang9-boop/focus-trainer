@@ -7,7 +7,11 @@
 被验的包（不要重新构建，验的就是这一份）：
 ```
 E:\WORK\脑力训练\focus-trainer\android\app\build\outputs\apk\debug\app-debug.apk
-4,155,203 字节 · 2026-10-20 19:39:25 · 包名 com.focustrainer.app · 应用名「专注力训练」
+4,157,235 字节 · 2026-10-20 22:59:33 · 包名 com.focustrainer.app · 应用名「专注力训练」
+```
+装前先自证手上确实是这一份（分页减负轮重出过包，上一轮那份是 4,155,203 字节 / 19:39:25，数字对不上就是拿旧包在验）：
+```powershell
+Get-Item "E:\WORK\脑力训练\focus-trainer\android\app\build\outputs\apk\debug\app-debug.apk" | Select-Object Length, LastWriteTime
 ```
 
 ## 0. 一次性准备（手机侧）

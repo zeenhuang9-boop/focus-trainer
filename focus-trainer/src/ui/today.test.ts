@@ -118,10 +118,20 @@ describe('ensureTodayPlan 的注册表增长重算（K8）', () => {
     const first = await ensureTodayPlan(repo, IDS, 4, NOW);
     expect(first.games).toEqual(['schulte']);
     const put = vi.spyOn(repo, 'putPlan');
+    // 这两条读库计数断言只为 today.ts 的早返回（if (existing && !isPlanStale(...)) return existing）而存在：
+    // 它是唯一省下档位读取的一层，删掉它首页/结算页每次渲染仍全绿，却按注册表长度多读 2×N 次库（评审探针 T1）。
+    // 对照：第二个写库闸门 if (plan !== existing) 在可达路径上恒为真，删掉它测试全绿（探针 T2），
+    // 所以这里不给它写任何假装有效的断言，只靠上面的读库计数护住真正承重的那一行。
+    const gs = vi.spyOn(repo, 'getGameState');
+    const ls = vi.spyOn(repo, 'lastSession');
     const again = await ensureTodayPlan(repo, IDS, 4, NOW);
     expect(again).toEqual(first);
     expect(put).not.toHaveBeenCalled();
+    expect(gs).toHaveBeenCalledTimes(0);
+    expect(ls).toHaveBeenCalledTimes(0);
     put.mockRestore();
+    gs.mockRestore();
+    ls.mockRestore();
   });
 
   it('M1 时代留下的 1 项计划：注册了第二个游戏后当天就重算成 2 项并写库', async () => {

@@ -55,3 +55,17 @@ export function streak(plans: readonly DayPlan[], todayKey: string): number {
     key = addDays(key, -1);
   }
 }
+
+// K8：注册表增长后当天计划要能变长，但只在「今天还没打完、计划项没满 3 个、
+// 且注册表里有计划外的新游戏」时重算。已打完的计划永不重算，否则没收用户今天的打卡。
+export function isPlanStale(plan: DayPlan, gameIds: readonly GameId[]): boolean {
+  if (isPlanComplete(plan)) return false;
+  if (plan.games.length >= PLAN_SIZE) return false;
+  return gameIds.some((id) => !plan.games.includes(id));
+}
+
+export function reconcilePlan(plan: DayPlan, standings: readonly GameStanding[]): DayPlan {
+  if (!isPlanStale(plan, standings.map((s) => s.gameId))) return plan;
+  const rebuilt = buildPlan(plan.dayKey, standings);
+  return { ...rebuilt, completed: rebuilt.games.filter((g) => plan.completed.includes(g)) };
+}

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlan, isPlanComplete, markCompleted, nextPending, streak, type GameStanding } from './scheduler';
-import type { DayPlan, GameId } from './types';
+import {
+  buildPlan,
+  isPlanComplete,
+  isPlanStale,
+  markCompleted,
+  nextPending,
+  reconcilePlan,
+  streak,
+  type GameStanding,
+} from './scheduler';
+import { GAME_IDS, type DayPlan, type GameId } from './types';
 
 const st = (gameId: GameId, lastPlayedDayKey: string | null = null, lastAbility: number | null = null): GameStanding => ({
   gameId,
@@ -114,5 +123,63 @@ describe('streak', () => {
 
   it('跨月连续', () => {
     expect(streak([done('2026-09-30'), done('2026-10-01')], '2026-10-01')).toBe(2);
+  });
+});
+
+describe('注册表增长后的计划重算（K8）', () => {
+  it('注册表没长时不陈旧', () => {
+    expect(isPlanStale(plan('2026-10-18', ['schulte']), ['schulte'])).toBe(false);
+  });
+
+  it('注册表长了且计划项未满 3 个时陈旧', () => {
+    expect(isPlanStale(plan('2026-10-18', ['schulte']), ['schulte', 'stroop'])).toBe(true);
+  });
+
+  it('边界：计划项已达 PLAN_SIZE 就不再重算', () => {
+    expect(isPlanStale(plan('2026-10-18', ['schulte', 'stroop']), ['schulte', 'stroop', 'seqmem'])).toBe(true);
+    expect(isPlanStale(plan('2026-10-18', ['schulte', 'stroop', 'seqmem']), GAME_IDS)).toBe(false);
+  });
+
+  it('当天已经打完的计划永不陈旧 —— 重算会没收这一天的打卡', () => {
+    expect(isPlanStale(plan('2026-10-18', ['schulte'], ['schulte']), GAME_IDS)).toBe(false);
+  });
+
+  it('不陈旧时 reconcilePlan 返回同一个对象，也不改入参', () => {
+    const p = plan('2026-10-18', ['schulte', 'stroop', 'seqmem'], ['schulte']);
+    const standings = all();
+    expect(reconcilePlan(p, standings)).toBe(p);
+    expect(standings.map((s) => s.gameId)).toEqual(['schulte', 'stroop', 'seqmem', 'mot', 'gestalt']);
+  });
+
+  it('只有 1 个注册游戏时留下的计划：新游戏排在前面（没练过优先）', () => {
+    const rebuilt = reconcilePlan(plan('2026-10-18', ['schulte'], []), [
+      st('schulte', '2026-10-18', 25),
+      st('stroop'),
+    ]);
+    expect(rebuilt).toEqual(plan('2026-10-18', ['stroop', 'schulte']));
+    expect(nextPending(rebuilt)).toBe('stroop');
+  });
+
+  it('重算保留已完成标记', () => {
+    const rebuilt = reconcilePlan(plan('2026-10-18', ['schulte', 'stroop'], ['schulte']), [
+      st('schulte', '2026-10-18', 25),
+      st('stroop'),
+      st('seqmem'),
+    ]);
+    expect(rebuilt).toEqual(plan('2026-10-18', ['stroop', 'seqmem', 'schulte'], ['schulte']));
+    expect(nextPending(rebuilt)).toBe('stroop');
+    expect(isPlanComplete(rebuilt)).toBe(false);
+  });
+
+  it('重算是幂等的：第二次调用不再判陈旧', () => {
+    const ids: GameId[] = ['schulte', 'stroop', 'seqmem'];
+    const once = reconcilePlan(plan('2026-10-18', ['schulte'], []), ids.map((id) => st(id)));
+    expect(isPlanStale(once, ids)).toBe(false);
+    expect(reconcilePlan(once, ids.map((id) => st(id)))).toBe(once);
+  });
+
+  it('挤出旧项时只保留仍在新计划里的完成标记（未完成的日子不会倒退打卡）', () => {
+    const rebuilt = reconcilePlan(plan('2026-10-18', ['gestalt', 'mot'], ['mot']), all());
+    expect(rebuilt).toEqual(plan('2026-10-18', ['schulte', 'stroop', 'seqmem']));
   });
 });

@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { isPlanComplete, streak } from '../core/scheduler';
+import { describe, expect, it, vi } from 'vitest';
+import { isPlanComplete, nextPending, streak } from '../core/scheduler';
 import { SessionRunner } from '../core/session';
 import { MemoryRepository } from '../core/storage';
-import { GAME_IDS, type GameId, type Mode } from '../core/types';
+import { GAME_IDS, type DayPlan, type GameId, type GameState, type Mode, type SessionRecord } from '../core/types';
 import { schulte } from '../games/schulte';
 import type { SchulteSnapshot } from '../games/schulte/engine';
 import { ensureTodayPlan, saveFinishedSession } from './today';
@@ -88,5 +88,92 @@ describe('saveFinishedSession', () => {
     const { record } = await saveFinishedSession(repo, IDS, 4, await playSchulte(repo), lateNight);
     expect(record.dayKey).toBe('2026-10-18');
     expect(await repo.getPlan('2026-10-18')).not.toBeNull();
+  });
+});
+
+const savedState = (gameId: GameId, level: number, played: string | null): GameState => ({
+  gameId,
+  level,
+  passStreak: 0,
+  failStreak: 0,
+  lastPlayedDayKey: played,
+});
+
+const dummyRecord = (gameId: GameId, level: number, day: string): SessionRecord => ({
+  gameId,
+  mode: 'plan',
+  dayKey: day,
+  startedAt: NOW,
+  durationMs: 1000,
+  startLevel: level,
+  endLevel: level,
+  rounds: [],
+  summary: {},
+  ability: 25,
+});
+
+describe('ensureTodayPlan 的注册表增长重算（K8）', () => {
+  it('注册表没长时当天计划原样返回，并且不再写库', async () => {
+    const repo = new MemoryRepository();
+    const first = await ensureTodayPlan(repo, IDS, 4, NOW);
+    expect(first.games).toEqual(['schulte']);
+    const put = vi.spyOn(repo, 'putPlan');
+    const again = await ensureTodayPlan(repo, IDS, 4, NOW);
+    expect(again).toEqual(first);
+    expect(put).not.toHaveBeenCalled();
+    put.mockRestore();
+  });
+
+  it('M1 时代留下的 1 项计划：注册了第二个游戏后当天就重算成 2 项并写库', async () => {
+    const repo = new MemoryRepository();
+    await repo.putPlan({ dayKey: '2026-10-18', games: ['schulte'], completed: [] });
+    const two: GameId[] = ['schulte', 'stroop'];
+    const plan = await ensureTodayPlan(repo, two, 4, NOW);
+    expect(plan).toEqual({ dayKey: '2026-10-18', games: ['schulte', 'stroop'], completed: [] });
+    expect(await repo.getPlan('2026-10-18')).toEqual(plan);
+  });
+
+  it('重算是幂等的：第二次调用不写库', async () => {
+    const repo = new MemoryRepository();
+    await repo.putPlan({ dayKey: '2026-10-18', games: ['schulte'], completed: [] });
+    const two: GameId[] = ['schulte', 'stroop'];
+    const once = await ensureTodayPlan(repo, two, 4, NOW);
+    const put = vi.spyOn(repo, 'putPlan');
+    const twice = await ensureTodayPlan(repo, two, 4, NOW);
+    expect(twice).toEqual(once);
+    expect(put).not.toHaveBeenCalled();
+    put.mockRestore();
+  });
+
+  it('今天已经打完的 1 项计划绝不重算，否则没收用户今天的打卡', async () => {
+    const repo = new MemoryRepository();
+    await repo.putPlan({ dayKey: '2026-10-18', games: ['schulte'], completed: ['schulte'] });
+    const two: GameId[] = ['schulte', 'stroop'];
+    const plan = await ensureTodayPlan(repo, two, 4, NOW);
+    expect(plan).toEqual({ dayKey: '2026-10-18', games: ['schulte'], completed: ['schulte'] });
+    expect(isPlanComplete(plan)).toBe(true);
+    expect(await repo.getPlan('2026-10-18')).toEqual(plan);
+  });
+
+  it('重算保留已完成标记：昨天打完 + 今天已练一项，连续打卡不会掉', async () => {
+    const repo = new MemoryRepository();
+    await repo.putPlan({ dayKey: '2026-10-17', games: ['schulte'], completed: ['schulte'] });
+    await repo.putPlan({ dayKey: '2026-10-18', games: ['schulte', 'stroop'], completed: ['schulte'] });
+    await repo.saveSession(dummyRecord('schulte', 5, '2026-10-18'), savedState('schulte', 5, '2026-10-18'), null);
+    const three: GameId[] = ['schulte', 'stroop', 'seqmem'];
+    const plan = await ensureTodayPlan(repo, three, 4, NOW);
+    // stroop 与 seqmem 都没练过排前面，schulte 今天练过排最后；已完成标记跟着留下
+    expect(plan).toEqual({ dayKey: '2026-10-18', games: ['stroop', 'seqmem', 'schulte'], completed: ['schulte'] });
+    expect(nextPending(plan)).toBe('stroop');
+    expect(streak(await repo.listPlans(), '2026-10-18')).toBe(1);
+  });
+
+  it('历史日期的计划一律不动，打卡记录不可能被追溯收回', async () => {
+    const repo = new MemoryRepository();
+    const yesterday: DayPlan = { dayKey: '2026-10-17', games: ['schulte'], completed: ['schulte'] };
+    await repo.putPlan(yesterday);
+    await ensureTodayPlan(repo, ['schulte', 'stroop'], 4, NOW);
+    expect(await repo.getPlan('2026-10-17')).toEqual(yesterday);
+    expect(streak(await repo.listPlans(), '2026-10-17')).toBe(1);
   });
 });

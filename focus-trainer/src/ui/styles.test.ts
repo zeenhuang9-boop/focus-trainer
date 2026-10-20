@@ -315,6 +315,26 @@ describe('底部页签与正文避让', () => {
     expect(blocksFor('body:not(.training) #view').some((b) => /padding-bottom:\s*calc\(12px \+ var\(--nav-h\)\)/.test(b))).toBe(true);
   });
 
+  // #view 是四页正文唯一的外壳，规则体里五条声明（styles.css:99-105）此前只有 padding 被断过，
+  // 另外四条（flex / display / flex-direction / gap）零断言。T8 实现者实测：把 display: flex
+  // 整行删掉、padding 留着，本文件 26/26 仍然全绿 —— 那正是验收口径明令禁止的「真机布局已经塌了
+  // 而门槛照样绿」（同族前例是方格跌破 48px 触控下限而测试全绿）。四条一律取精确值，
+  // 不写 not.toBeNull() 那种「只要还在就算过」的形状：值被改成 grid 它也拦不住。
+  it('正文外壳的堆叠与间距：#view 那四条布局属性各钉精确值（删掉 display:flex 曾经静默全绿）', () => {
+    // flex:1 和 #app{min-height:100%}（styles.css:84-89）合起来把装不满的短页顶到视口高：
+    // 验收记录 §14.1 表里「训练库/设置的 scrollHeight 844 是视口下限、真实内容高 576/307」
+    // 这条口径就是由它撑起来的。改成 flex:0 1 auto（或整行删掉）后短页不再填满，§14.1 的反推算式全废。
+    expect(decl('#view', 'flex')).toBe('1');
+    // display:flex 与下一条合起来决定四页正文是竖着堆叠的；删掉它 #view 退回块流里的一堆默认盒，
+    // gap 不再参与竖向记账，页签避让与区块间距的实际表现一起变，而 padding 那条照旧绿。
+    expect(decl('#view', 'display')).toBe('flex');
+    // 只把 column 换成 row 也一样塌：五条声明变成横着排的一行，四页正文直接溢出视口宽。
+    expect(decl('#view', 'flex-direction')).toBe('column');
+    // gap:16px 就是区块间距本身，§14.1 那两条反推里加的正是它（训练库 28+20+412 + 2×16 + 84 = 576，
+    // 设置 28+73.6+25.6+48 + 3×16 + 84 = 307）；改成别的数或删掉，同表算式当场对不上。
+    expect(decl('#view', 'gap')).toBe('16px');
+  });
+
   it('训练路由里页签隐藏由 body.training 兜第二层，JS 的 hidden 是第一层', () => {
     expect(blocksFor('body.training #tabbar').some((b) => /display:\s*none/.test(b))).toBe(true);
   });

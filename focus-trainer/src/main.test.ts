@@ -225,6 +225,7 @@ function setupDom(initialHash = '#/') {
   const doc = {
     visibilityState: 'visible',
     body,
+    documentElement: new StubEl('html'),
     getElementById: (id: string): StubEl | null => byId[id] ?? null,
     createElement: (tag: string): StubEl => (tag === 'button' ? new StubButton(tag) : new StubEl(tag)),
     addEventListener: (type: string, fn: (ev: never) => void, opts?: { signal?: AbortSignal }): void => {
@@ -461,6 +462,9 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
     expect(h.banner.hidden).toBe(true);
     expect(h.banner.textContent).toBe('');
     expect(h.text()).not.toContain('本次成绩无法保存');
+    // Task 4：boot() 在 startRouter 之前就把主题写进 html；桩里没有 matchMedia，
+    // 默认设置 theme='auto' 因此解析为浅色（不额外给 matchMedia 打全局桩）。
+    expect(h.doc.documentElement.dataset.theme).toBe('light');
     const entry = recorder.home.at(-1);
     if (!entry) throw new Error('boot() 没有把首页渲染出来');
     expect(entry.ctx.storageOk).toBe(true);

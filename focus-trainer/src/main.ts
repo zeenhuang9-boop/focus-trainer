@@ -11,6 +11,7 @@ import { renderResult } from './ui/pages/result';
 import { renderTrends } from './ui/pages/trends';
 import { renderSettings } from './ui/pages/settings';
 import { startRouter, type Route } from './ui/router';
+import { applyTheme } from './ui/theme';
 
 function show(route: Route, view: HTMLElement, ctx: AppContext, signal: AbortSignal): Promise<void> {
   switch (route.name) {
@@ -48,6 +49,11 @@ export async function boot(): Promise<void> {
   }
   navigator.storage?.persist?.().catch((err: unknown) => console.warn('storage.persist 失败', err));
   const ctx: AppContext = { repo, storageOk, settings: await repo.getSettings() };
+  applyTheme(document.documentElement, ctx.settings.theme);
+  // 回调里动态读 ctx.settings.theme：设置页保存后会换掉 ctx.settings，
+  // 捕获旧值会让「auto 下切到深色再改系统外观」被拉回启动时的模式。
+  const media = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+  media?.addEventListener('change', () => applyTheme(document.documentElement, ctx.settings.theme));
   let current: AbortController | null = null;
   let currentRoute: Route = { name: 'home' };
   startRouter((route) => {

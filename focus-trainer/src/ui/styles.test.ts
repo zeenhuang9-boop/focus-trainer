@@ -386,3 +386,46 @@ describe('底部页签与正文避让', () => {
     expect(decl('[hidden]', 'display')).toBe('none !important');
   });
 });
+
+describe('深色主题', () => {
+  it('html[data-theme=dark] 覆盖九个 chrome token 并切换 color-scheme', () => {
+    expect(decl("html[data-theme='dark']", '--paper')).toBe('#15181c');
+    expect(decl("html[data-theme='dark']", '--card')).toBe('#1d2126');
+    expect(decl("html[data-theme='dark']", '--ink')).toBe('#e6e8ea');
+    expect(decl("html[data-theme='dark']", '--ink-2')).toBe('#9aa4b0');
+    expect(decl("html[data-theme='dark']", '--rule')).toBe('#343a42');
+    expect(decl("html[data-theme='dark']", '--focus')).toBe('#8ab4f8');
+    expect(decl("html[data-theme='dark']", '--done')).toBe('#6fbf8a');
+    expect(decl("html[data-theme='dark']", '--bad')).toBe('#f28b82');
+    expect(decl("html[data-theme='dark']", '--on-accent')).toBe('#0b1a2e');
+    expect(decl("html[data-theme='dark']", 'color-scheme')).toBe('dark');
+    // 裁定：--done-fg/--done-bg 只被 .schulte-cell.done 消费，而它永远在 body.training 的
+    // 深色刺激区里；深色块再加一份覆盖只会把训练区配色带偏，所以这里必须是 null。
+    expect(decl("html[data-theme='dark']", '--done-fg')).toBeNull();
+    expect(decl("html[data-theme='dark']", '--done-bg')).toBeNull();
+  });
+
+  it('深色正文/弱字/强调/完成/错误对各自底色 ≥ 4.5:1', () => {
+    expect(ratio('#e6e8ea', '#15181c')).toBeGreaterThanOrEqual(4.5);
+    expect(ratio('#9aa4b0', '#1d2126')).toBeGreaterThanOrEqual(4.5);
+    expect(ratio('#8ab4f8', '#1d2126')).toBeGreaterThanOrEqual(4.5);
+    expect(ratio('#6fbf8a', '#1d2126')).toBeGreaterThanOrEqual(4.5);
+    expect(ratio('#f28b82', '#1d2126')).toBeGreaterThanOrEqual(4.5);
+    expect(ratio('#0b1a2e', '#8ab4f8')).toBeGreaterThanOrEqual(4.5);
+    // 深色块不覆盖 --done-fg/--done-bg，所以完成格的这对字色仍出自 :root；
+    // 只要训练区永远是深底，这条比值就必须一直成立（控制器裁定 1 的护栏）。
+    expect(ratio('#9aa4b2', '#191c21')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('深色纸纹只落在非训练页（训练态必须保住 background-image: none）', () => {
+    expect(decl("html[data-theme='dark'] body:not(.training)", 'background-image')).toContain('repeating-linear-gradient');
+    // 负向护栏：写成 html[data-theme='dark'] body 时，body.training 自己的 background-image: none
+    // 声明还在（styles.test.ts:198 照样绿），但训练页实际会被纸纹盖掉，而真机才会看见。
+    expect(cssStripped).not.toMatch(/html\[data-theme='dark'\]\s+body\s*\{/);
+  });
+
+  it('深色横幅换深红底，白字仍 ≥4.5:1（--bad 调亮后不能直接当横幅底色）', () => {
+    expect(decl("html[data-theme='dark'] #banner", 'background')).toBe('#7a2e26');
+    expect(ratio('#fbfbf8', '#7a2e26')).toBeGreaterThanOrEqual(4.5);
+  });
+});

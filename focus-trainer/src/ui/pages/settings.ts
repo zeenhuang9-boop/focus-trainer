@@ -1,15 +1,22 @@
-import type { Settings } from '../../core/types';
+import type { Settings, ThemeMode } from '../../core/types';
 import type { AppContext } from '../context';
 import { h } from '../dom';
 import { navigate } from '../router';
+import { applyTheme } from '../theme';
 
 const HOURS = [0, 1, 2, 3, 4, 5, 6];
+const THEMES: ReadonlyArray<readonly [ThemeMode, string]> = [
+  ['auto', '跟随系统'],
+  ['light', '浅色'],
+  ['dark', '深色'],
+];
 
 async function save(ctx: AppContext, patch: Partial<Settings>, note: HTMLElement, text: string): Promise<void> {
   const settings: Settings = { ...ctx.settings, ...patch };
   // 先同步落到内存再 await：连续快速改两个开关时，后一次 save 必须看到前一次已合并的
   // ctx.settings，否则两次各基于旧值展开，后写覆盖前写。
   ctx.settings = settings;
+  applyTheme(document.documentElement, settings.theme);
   await ctx.repo.putSettings(settings);
   note.textContent = text;
 }
@@ -40,6 +47,18 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
   sound.addEventListener('change', () => {
     void save(ctx, { soundEnabled: sound.checked }, note, `声音反馈已${sound.checked ? '开启' : '关闭'}。`);
   });
+  const themeSelect = h(
+    'select',
+    { 'aria-label': '主题' },
+    ...THEMES.map(([value, label]) => {
+      const option = h('option', { value }, label);
+      option.selected = value === ctx.settings.theme;
+      return option;
+    }),
+  );
+  themeSelect.addEventListener('change', () => {
+    void save(ctx, { theme: themeSelect.value as ThemeMode }, note, '主题已保存。');
+  });
   const clear = h(
     'button',
     {
@@ -48,6 +67,7 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
         if (!confirm('清空全部训练记录、档位和计划？此操作不能撤销。')) return;
         await ctx.repo.clearAll();
         ctx.settings = await ctx.repo.getSettings();
+        applyTheme(document.documentElement, ctx.settings.theme);
         navigate({ name: 'home' });
       },
     },
@@ -56,6 +76,7 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
   view.replaceChildren(
     h('h1', null, '设置'),
     h('div', { class: 'card' }, h('span', null, '每日分界时间'), h('span', { class: 'spacer' }), select),
+    h('div', { class: 'card' }, h('span', null, '主题'), h('span', { class: 'spacer' }), themeSelect),
     h('label', { class: 'card' }, h('span', null, '震动反馈'), h('span', { class: 'spacer' }), haptics),
     h('label', { class: 'card' }, h('span', null, '声音反馈'), h('span', { class: 'spacer' }), sound),
     note,

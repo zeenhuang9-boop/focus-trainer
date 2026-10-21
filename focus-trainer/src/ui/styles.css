@@ -33,6 +33,40 @@
   font-family: system-ui, -apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
 }
 
+/* 深色主题：只覆盖页面 chrome 的九个 token，不碰 --stage 与训练态取值。
+   别名 --bg/--panel/--line/--text/--muted/--accent 都在 :root 里以 var() 指向这些名字，
+   这里改名字本身即可跟着变；训练态的七个旧名都声明在 body.training 上，
+   对 body 及其后代永远优先于从 html 继承下来的值。
+   --done-fg/--done-bg 刻意不在这里覆盖：它们只被 .schulte-cell.done 消费，而那一格
+   永远在 body.training 的深色刺激区里，改页面主题反而会把训练区配色带偏。
+   块内不写注释，理由同 :root —— decl() 用「; + 空白」锚定属性。 */
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #15181c;
+  --card: #1d2126;
+  --ink: #e6e8ea;
+  --ink-2: #9aa4b0;
+  --rule: #343a42;
+  --focus: #8ab4f8;
+  --done: #6fbf8a;
+  --bad: #f28b82;
+  --on-accent: #0b1a2e;
+}
+
+/* 纸纹这条规则带 body，特异度 (0,1,2) 会压过 body.training 的 (0,1,1)：
+   必须排除 .training，训练页才能保住 background-image: none。 */
+html[data-theme='dark'] body:not(.training) {
+  background-image: repeating-linear-gradient(to right, rgba(138, 180, 248, 0.05) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(to bottom, rgba(138, 180, 248, 0.05) 0 1px, transparent 1px 24px);
+}
+
+/* --bad 在深色调亮成 #f28b82（danger 文字对卡面才够 4.5:1）；
+   #banner 的白字压在亮红上只剩约 2.5:1，横幅单独换深红底。 */
+html[data-theme='dark'] #banner {
+  background: #7a2e26;
+  color: #fbfbf8;
+}
+
 /* 深色刺激区（训练路由）：play.ts 挂载时给 body 加 .training，abort 时摘掉。
    这一层只做两件事 —— 页面底色转深（纸纹撤掉）、把六个旧名改回改造前的取值。
    这些取值一个都不是装饰：它们是五个游戏视图测试与 WCAG 算式里的分母。

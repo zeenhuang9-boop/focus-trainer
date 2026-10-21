@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SessionRunner } from '../../core/session';
 import { MemoryRepository } from '../../core/storage';
-import type { GameId, Mode } from '../../core/types';
+import type { GameId, GameState, Mode } from '../../core/types';
 import type { SchulteSnapshot } from '../../games/schulte/engine';
 import type { AppContext } from '../context';
 import { renderPlay } from './play';
+
+// 反馈是 play.ts 的评分前一步：这里把整个 fx 模块换成计数器，
+// 让「有效输入必须恰好 tap 一次」成为可断言的接线，而不是只靠在真机上感觉。
+const fxSpy = vi.hoisted(() => ({ tap: vi.fn(), hit: vi.fn(), miss: vi.fn() }));
+
+vi.mock('../fx', () => ({
+  createFx: () => ({ tap: fxSpy.tap, hit: fxSpy.hit, miss: fxSpy.miss }),
+}));
 
 // node 环境没有 DOM，这里手写 play.ts + 舒尔特视图用到的那一小撮 API 的最小桩：
 // createElement / append / replaceChildren / textContent / className / dataset / style /
@@ -556,5 +564,45 @@ describe('renderPlay 的时钟契约', () => {
     expect(h.getGameState).not.toHaveBeenCalled();
     expect(h.view.children).toHaveLength(0);
     expect(h.fed()).toEqual([]);
+  });
+
+  it('一次有效输入调用 fx.tap() 恰好一次（删掉 play.ts 的接线这条就红）', async () => {
+    const h = setup();
+    await h.render();
+    toRound(h, 1);
+
+    const s = h.snapshot();
+    const start = h.beginTimes()[0];
+    h.clickCell(s.cells.findIndex((c) => c.label === s.nextLabel), start + 300);
+
+    expect(h.input).toHaveBeenCalledTimes(1);
+    expect(fxSpy.tap).toHaveBeenCalledTimes(1);
+    expect(fxSpy.hit).not.toHaveBeenCalled();
+    expect(fxSpy.miss).not.toHaveBeenCalled();
+  });
+
+  it('存档档位超出上限时按 maxLevel 开局，说明层与开轮都不抛错', async () => {
+    const h = setup();
+    const level999: GameState = {
+      gameId: 'schulte',
+      level: 999,
+      passStreak: 0,
+      failStreak: 0,
+      lastPlayedDayKey: null,
+    };
+    await h.repo.loadAll({
+      sessions: [],
+      gameStates: [level999],
+      plans: [],
+      settings: { dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false },
+    });
+    await h.render();
+
+    // schulte 的 maxLevel 是 10：修复前 999 会原样进 SessionRunner，开轮时 configure 抛错。
+    expect(h.view.textContent).toContain('当前第 10 档');
+    expect(() => toRound(h, 1)).not.toThrow();
+    expect(h.session().snapshot().level).toBe(10);
+    // 只夹构造参数，不回写仓库：旧档位记录原样留在存储里。
+    expect((await h.repo.getGameState('schulte')).level).toBe(999);
   });
 });

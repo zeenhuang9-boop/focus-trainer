@@ -93,7 +93,7 @@ describe('备份导出与导入', () => {
     expect(await target.getSettings()).toEqual({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
   });
 
-  it('合并：同一条训练不重复、档位取高、打卡取并集', async () => {
+  it('合并：同一条训练不重复、档位取高、同日计划 completed 更全的一方整条胜出', async () => {
     const target = new MemoryRepository();
     await target.saveSession(rec('schulte', 100), state('schulte', 2), plan('2026-10-18', []));
 
@@ -299,5 +299,71 @@ describe('备份解析校验', () => {
   it('旧备份缺少新增设置字段时按默认值回填', () => {
     const data = parseBackup(rawBackup({ settings: { dayStartHour: 2 } }));
     expect(data.settings).toEqual({ dayStartHour: 2, theme: 'auto', hapticsEnabled: true, soundEnabled: false });
+  });
+
+  it('计划：completed 不是 games 子集时拒绝', () => {
+    const badPlan = { dayKey: '2026-10-18', games: ['schulte', 'stroop'], completed: ['mot'] };
+    expect(() => parseBackup(rawBackup({ plans: [badPlan] }))).toThrow('备份里的计划记录不完整（completed 不在 games 里）');
+  });
+
+  it('计划：games 有重复 id 时拒绝', () => {
+    const badPlan = { dayKey: '2026-10-18', games: ['schulte', 'schulte'], completed: ['schulte'] };
+    expect(() => parseBackup(rawBackup({ plans: [badPlan] }))).toThrow('备份里的计划记录不完整（games 有重复）');
+  });
+
+  it('计划：completed 有重复 id 时拒绝', () => {
+    const badPlan = { dayKey: '2026-10-18', games: ['schulte', 'stroop'], completed: ['schulte', 'schulte'] };
+    expect(() => parseBackup(rawBackup({ plans: [badPlan] }))).toThrow('备份里的计划记录不完整（completed 有重复）');
+  });
+
+  it('计划边界：completed 等于 games、为空都接受', () => {
+    const full = parseBackup(
+      rawBackup({ plans: [{ dayKey: '2026-10-18', games: ['schulte', 'mot'], completed: ['schulte', 'mot'] }] }),
+    );
+    expect(full.plans[0]?.completed).toEqual(['schulte', 'mot']);
+
+    const none = parseBackup(
+      rawBackup({ plans: [{ dayKey: '2026-10-18', games: ['schulte', 'mot'], completed: [] }] }),
+    );
+    expect(none.plans[0]?.completed).toEqual([]);
+  });
+
+  it('设置：dayStartHour 必须是 0–23 的整数', () => {
+    for (const bad of [99, 1.5, -1]) {
+      expect(() => parseBackup(rawBackup({ settings: { ...DEFAULT_SETTINGS, dayStartHour: bad } }))).toThrow(
+        '备份里的设置不完整（dayStartHour 非法）',
+      );
+    }
+    for (const good of [0, 23]) {
+      const data = parseBackup(rawBackup({ settings: { ...DEFAULT_SETTINGS, dayStartHour: good } }));
+      expect(data.settings.dayStartHour).toBe(good);
+    }
+  });
+
+  it('档位：level 必须是 1–99 的整数', () => {
+    for (const bad of [0, 1.5, 1e9, -3]) {
+      expect(() => parseBackup(rawBackup({ gameStates: [{ ...state('schulte'), level: bad }] }))).toThrow(
+        '备份里的档位记录不完整（level 非法）',
+      );
+    }
+    for (const good of [1, 99]) {
+      const data = parseBackup(rawBackup({ gameStates: [{ ...state('schulte'), level: good }] }));
+      expect(data.gameStates[0]?.level).toBe(good);
+    }
+  });
+
+  it('档位：passStreak/failStreak 必须是非负整数', () => {
+    for (const [key, bad] of [
+      ['passStreak', -1],
+      ['passStreak', 1.5],
+      ['failStreak', -2],
+      ['failStreak', 2.5],
+    ] as const) {
+      expect(() =>
+        parseBackup(rawBackup({ gameStates: [{ ...state('schulte'), [key]: bad }] })),
+      ).toThrow(`备份里的档位记录不完整（${key} 非法）`);
+    }
+    const ok = parseBackup(rawBackup({ gameStates: [{ ...state('schulte'), passStreak: 0, failStreak: 0 }] }));
+    expect([ok.gameStates[0]?.passStreak, ok.gameStates[0]?.failStreak]).toEqual([0, 0]);
   });
 });

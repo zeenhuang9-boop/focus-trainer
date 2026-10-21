@@ -65,8 +65,15 @@ function checkSession(value: unknown): SessionRecord {
 function checkGameState(value: unknown): GameState {
   const g = asObject(value, '档位记录');
   if (!isGameId(g.gameId)) throw new Error('备份里的档位记录不完整（gameId 非法）');
-  for (const key of ['level', 'passStreak', 'failStreak'] as const) {
-    if (!Number.isFinite(g[key])) throw new Error(`备份里的档位记录不完整（${key} 非法）`);
+  const level = g.level;
+  if (!Number.isInteger(level) || (level as number) < 1 || (level as number) > 99) {
+    throw new Error('备份里的档位记录不完整（level 非法）');
+  }
+  for (const key of ['passStreak', 'failStreak'] as const) {
+    const streak = g[key];
+    if (!Number.isInteger(streak) || (streak as number) < 0) {
+      throw new Error(`备份里的档位记录不完整（${key} 非法）`);
+    }
   }
   if (g.lastPlayedDayKey !== null && typeof g.lastPlayedDayKey !== 'string') {
     throw new Error('备份里的档位记录不完整（lastPlayedDayKey 非法）');
@@ -79,13 +86,27 @@ function checkPlan(value: unknown): DayPlan {
   if (typeof p.dayKey !== 'string') throw new Error('备份里的计划记录不完整（dayKey 非法）');
   if (!isGameIdArray(p.games)) throw new Error('备份里的计划记录不完整（games 非法）');
   if (!isGameIdArray(p.completed)) throw new Error('备份里的计划记录不完整（completed 非法）');
+  const games = p.games;
+  const completed = p.completed;
+  if (new Set(games).size !== games.length) {
+    throw new Error('备份里的计划记录不完整（games 有重复）');
+  }
+  if (new Set(completed).size !== completed.length) {
+    throw new Error('备份里的计划记录不完整（completed 有重复）');
+  }
+  if (completed.some((id) => !games.includes(id))) {
+    throw new Error('备份里的计划记录不完整（completed 不在 games 里）');
+  }
   return p as unknown as DayPlan;
 }
 
 function checkSettings(value: unknown): Settings {
   const s = asObject(value, '设置');
-  if (!Number.isFinite(s.dayStartHour)) throw new Error('备份里的设置不完整（dayStartHour 非法）');
-  const dayStartHour = s.dayStartHour as number;
+  const hour = s.dayStartHour;
+  if (!Number.isInteger(hour) || (hour as number) < 0 || (hour as number) > 23) {
+    throw new Error('备份里的设置不完整（dayStartHour 非法）');
+  }
+  const dayStartHour = hour as number;
   if (s.theme !== undefined && !THEMES.includes(s.theme as ThemeMode)) {
     throw new Error('备份里的设置 theme 非法');
   }

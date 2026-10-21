@@ -44,9 +44,14 @@ export async function renderPlay(
   const state = await ctx.repo.getGameState(gameId);
   if (signal.aborted) return;
 
+  // 旧版本或坏导入可能写进超出 maxLevel 的非整数档位：只夹构造参数，不回写仓库，
+  // 否则引擎 configure 会抛错，这个游戏从此打不开。
+  const storedLevel = Number.isInteger(state.level) ? state.level : 1;
+  const level = Math.min(Math.max(storedLevel, 1), game.maxLevel);
+
   // Date.now() 只用于种子与记录时间；轮内计时全用帧时间戳
   const startedAt = Date.now();
-  const runner = new SessionRunner(game, state, mode, startedAt, startedAt);
+  const runner = new SessionRunner(game, { ...state, level }, mode, startedAt, startedAt);
   const countdownEl = h('div', { class: 'countdown' }, String(Math.ceil(COUNTDOWN_MS / 1000)));
 
   let ui: 'intro' | 'countdown' | 'starting' | 'running' | 'paused' | 'saving' = 'intro';

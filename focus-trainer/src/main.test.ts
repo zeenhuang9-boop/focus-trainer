@@ -185,6 +185,26 @@ class FakeHashChangeEvent {
 const EPOCH = new Date(2026, 9, 19, 10, 0).getTime();
 const EPOCH_DAY = '2026-10-19';
 
+function memoryStorage(hint?: string) {
+  const map = new Map<string, string>();
+  if (hint !== undefined) map.set('focus-trainer/theme', hint);
+  return {
+    map,
+    getItem: (key: string): string | null => map.get(key) ?? null,
+    setItem: (key: string, value: string): void => {
+      map.set(key, value);
+    },
+  };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 function setupDom(initialHash = '#/') {
   const banner = new StubEl('div');
   // index.html 里是 <div id="banner" hidden>，桩的初始状态必须是隐藏的，
@@ -636,5 +656,58 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
     // 把「恰有一条 aria-current」和它的 href 绑死：nav.ts 里 active 与 TABS 项错配时 boot 级也会红。
     expect(current[0].tag).toBe('a');
     expect(current[0].attrs.get('href')).toBe('#/settings');
+  });
+});
+
+describe('冷启动主题提示（I1）', () => {
+  it('仓库仍挂起时提示已同步落进 dataset；设置返回后以设置为准', async () => {
+    const h = setupDom();
+    const storage = await freshStorage();
+    const repo = new storage.MemoryRepository();
+    await repo.putSettings({ ...storage.DEFAULT_SETTINGS, theme: 'light' });
+    const pending = deferred<Repository>();
+    recorder.openIdbRepository.mockReturnValue(pending.promise);
+    vi.stubGlobal('localStorage', memoryStorage('dark'));
+    vi.stubGlobal('matchMedia', undefined);
+
+    // 模块导入即执行了一次 boot()；openIdbRepository 仍是 pending，提示必须已经生效。
+    const { boot } = await importMain();
+    expect(h.doc.documentElement.dataset.theme).toBe('dark');
+
+    const booting = boot();
+    expect(h.doc.documentElement.dataset.theme).toBe('dark');
+
+    pending.resolve(repo);
+    await booting;
+    // getSettings() 返回后，权威设置覆盖提示（提示由 applyTheme 同步改写）。
+    expect(h.doc.documentElement.dataset.theme).toBe('light');
+    await h.waitForHome();
+  });
+
+  it('系统外观变化时 dataset 跟随当前设置（auto）的实时 matchMedia', async () => {
+    const h = setupDom();
+    const storage = await freshStorage();
+    const repo = new storage.MemoryRepository();
+    await repo.putSettings({ ...storage.DEFAULT_SETTINGS, theme: 'auto' });
+    recorder.openIdbRepository.mockResolvedValue(repo);
+    const listeners: Array<() => void> = [];
+    const mql = {
+      matches: false,
+      addEventListener: (type: string, fn: () => void): void => {
+        if (type === 'change') listeners.push(fn);
+      },
+    };
+    vi.stubGlobal('matchMedia', () => mql);
+    vi.stubGlobal('localStorage', memoryStorage());
+
+    const { boot } = await importMain();
+    await h.waitForHome();
+    await boot();
+    expect(h.doc.documentElement.dataset.theme).toBe('light');
+    expect(listeners.length).toBeGreaterThan(0);
+
+    mql.matches = true;
+    for (const fn of listeners) fn();
+    expect(h.doc.documentElement.dataset.theme).toBe('dark');
   });
 });

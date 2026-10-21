@@ -11,7 +11,7 @@ import { renderResult } from './ui/pages/result';
 import { renderTrends } from './ui/pages/trends';
 import { renderSettings } from './ui/pages/settings';
 import { startRouter, type Route } from './ui/router';
-import { applyTheme } from './ui/theme';
+import { applyTheme, applyThemeHint } from './ui/theme';
 
 function show(route: Route, view: HTMLElement, ctx: AppContext, signal: AbortSignal): Promise<void> {
   switch (route.name) {
@@ -33,6 +33,9 @@ function show(route: Route, view: HTMLElement, ctx: AppContext, signal: AbortSig
 // export 只为可测性：spec §6 第一条（IndexedDB 打开失败）必须由 main.test.ts 真的跑一遍。
 // 末尾的 boot().catch(...) 自调保持原样 —— 不改启动行为，测试靠导入即执行那一次装配。
 export async function boot(): Promise<void> {
+  // 第一条语句，早于任何 await：深色/auto-深色用户的冷启动首屏不能先刷成浅色。
+  // 之后设置读回来还会再 applyTheme 一次，以 IndexedDB 为准。
+  applyThemeHint(document.documentElement);
   const banner = document.getElementById('banner') as HTMLElement;
   const view = document.getElementById('view') as HTMLElement;
   const tabbar = document.getElementById('tabbar') as HTMLElement;

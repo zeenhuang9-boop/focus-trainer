@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#eef0ea" />
+    <script>
+      // 同步落主题：深色/auto-深色用户的冷启动首屏不能先刷成浅色。
+      (function () {
+        try {
+          var hint = null;
+          try {
+            hint = localStorage.getItem('focus-trainer/theme');
+          } catch (err) {}
+          if (hint !== 'light' && hint !== 'dark') hint = null;
+          var dark = hint
+            ? hint === 'dark'
+            : typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', dark ? '#15181c' : '#eef0ea');
+        } catch (err) {}
+      })();
+    </script>
     <title>专注力训练</title>
   </head>
   <body>

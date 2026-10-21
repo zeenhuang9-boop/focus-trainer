@@ -60,6 +60,11 @@ check(`minSdk '${EXPECT.minSdk}'`, new RegExp(`sdkVersion:'${EXPECT.minSdk}'`).t
 check(`targetSdk '${EXPECT.targetSdk}'`, new RegExp(`targetSdkVersion:'${EXPECT.targetSdk}'`).test(badging), (badging.match(/targetSdkVersion:[^\r\n]*/m) ?? [''])[0]);
 check(`启动活动 ${EXPECT.activity}`, badging.includes(`launchable-activity: name='${EXPECT.activity}'`), (badging.match(/launchable-activity:[^\r\n]*/m) ?? [''])[0]);
 check('保留 INTERNET 权限（WebView 从 localhost 读本地文件所需）', badging.includes("uses-permission: name='android.permission.INTERNET'"), (badging.match(/uses-permission:[^\n]*/g) ?? ['无 uses-permission 行']).join(' | '));
+check(
+  '声明 VIBRATE 权限（点击反馈震动所需）',
+  badging.includes("uses-permission: name='android.permission.VIBRATE'"),
+  (badging.match(/uses-permission:[^\n]*/g) ?? []).join(' | ')
+);
 
 // 方向不在 badging 输出里，只能从 Manifest 的 XML 树读枚举值
 const xmltree = run(AAPT, ['dump', 'xmltree', APK, 'AndroidManifest.xml']);

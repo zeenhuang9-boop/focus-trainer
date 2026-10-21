@@ -268,6 +268,24 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 
 **最终包身份的收口实测（2026-10-21 00:43，HEAD `e71ba8d`，标准 1）**：按上一段的口径，`cb69dcc → 2d54306 → 67f7bc5 → 471f2e0 → bf32075 → e71ba8d` 六个提交**全部**只动 `**/*.test.ts` 或 `docs/`，`git log -1 … ':(exclude,glob)**/*.test.ts'` 仍指回 `7cf5fa6` 22:55:18（早于包 22:59:33）⇒ 不触发重出。正身判据在最终 HEAD 上当场重跑：`npm run build`（`tsc --noEmit && vite build`，4 个产物，73 ms）后与 `unzip -p` 从包里取的同名文件对照 —— 三个 chunk **逐字节** MD5 全等（`c557d0ec…` / `dac3d7fe…` / `cc19e1a1…`），`index.html` 剥 CR 后全等（`a047da99…`）；`npm run verify:apk` 重跑仍是**共 13 项，失败 0 项**（含 `com.focustrainer.app` / `专注力训练` / `screenOrientation = 1 (PORTRAIT)` / `CN=Android Debug` 签名有效 / 无外部 origin / 相对路径引用）。⇒ **`android/app/build/outputs/apk/debug/app-debug.apk` = 4,157,235 B @ 2026-10-20 22:59:33 就是最终包**，未经再次重出、mtime 与体积数字全部原样，真机手册 `1b6882b` 那行被验包身份继续正确，不需同步。
 
+**2026-10-21 反馈 / 备份 / 深色主题轮（HEAD `c2b91b4`；包身份与门槛以此段为准，上方 `22:59:33` 那份为上一轮）**
+
+- **门槛**：`npx tsc --noEmit` exit 0；`npx vitest run` = **48 文件 / 591 用例全绿**（上一轮 43/522；新增 fx / press / theme / backup 等用例与 2 个测试文件）。
+- **新包身份**：**4,162,083 B @ 2026-10-21 17:20:31**（上一轮 4,157,235 B @ 2026-10-20 22:59:33，+4,848 B；体积不是完整性信号，见 §12）。本轮动了非测试 `src/`，按口径先 `rm -f` 旧包再 `assembleDebug --no-daemon`（`BUILD SUCCESSFUL in 43s`）；`npm run verify:apk` = **共 14 项，失败 0 项**（新增项为 `android.permission.VIBRATE` 出现在 `uses-permission`；apksigner / 相对路径 / 无外部 origin / 竖屏等 13 项同上一轮）。
+- **正身判据**（`unzip -p` 从包内取，不读磁盘；`dist` 在最终 HEAD `c2b91b4` 上用 `npm run build` 当场重建）：三个 chunk **逐字节 MD5 全等** —— `assets/index-CHdiIb82.js` `4ebc0a21…`、`assets/index-ByDglnb_.css` `2dbe42a7…`、`assets/web-BfLmGF7Q.js` `d13d07f2…`；`index.html` **两侧都剥 CR 后** `5594e358…` 全等（dist raw 与包内 raw 的 MD5 不同只是 CRLF 口径）。正控：包内 `is-pressed` ×2、`backup-text` ×2、`震动反馈` ×1；负控：测试标题 `同日计划 games 不同` 命中 **0**（`*.test.ts` 不进包）。
+- **浏览器验收**（同源 iframe 390×844 + rAF 桩；逐项归属见文末）：
+  1. **按压驻留**：五款首元素 `pointerdown` 同步挂 `.is-pressed`，1100ms 后全部摘除（当时元素状态：stroop→`wrong`、schulte→`flash`、seqmem→`picked`、gestalt→`wrong`、mot→`target sel hit`）。90ms 下界由单测承接——隐藏页 timer 被节流，浏览器只证「同步挂 / 定时摘」的接线。
+  2. **对错反馈上升沿**：stroop 仅所答项一次 `wrong`，下一题清；schulte 仅误点格 `flash`，下一轮清；seqmem `picked` 本试次内保留（设计如此）；gestalt 一右一错后 140 帧全清；mot `hit/wrong/missed` 只落在涉及点，下一轮 motion 全清；五款均无重复标记。
+  3. **五款完整闭环**：本轮回归只验反馈接线，未重跑整场；逐款完整场见 §14.4 与 M2/M3 记录。
+  4. **深色主题**：四张常驻页 `rgb(21,24,28)` / 墨色 `rgb(230,232,234)`；五款训练页 `body.training` 深底 `rgb(16,21,26)`、页签 `none`，训练区观感不变；reload 后保持 dark（boot 1218ms）；切回浅色 `rgb(238,240,234)` / `rgb(22,26,30)`。
+  5. **备份往返（真 IndexedDB）**：导出 114,885 字符（pretty-printed，首字符是 `{`、`format` 为第一个字段；A4 的「以 `{"app"` 开头」判据改为按字段断言）；清空后 `plans` 只剩自动生成的今日计划、`sessions` 0；合并导入恢复 `sessions` 9 / `plans` 2 / `gameState` 5，sessions 三元组与导出前逐条一致，设置恢复；首页今日计划 `mot/gestalt/seqmem` 全勾、`2天连续打卡`。
+  6. **坏数据拒绝**：提示原文 `导入失败：不是本应用的备份（缺少 format/app 标记）`，库仍 5/2/9/1。
+  7. **回归**：四页签 `a.click()` 路由与唯一 `aria-current` 正常；训练页退出确认（confirm 打桩 true）→ 回首页、`.training` 摘除、页签恢复；趋势页 3 张 SVG 图（雷达 / 曲线 / 日历）在场。
+- **本轮抓到并修掉的缺陷（R11）**：清空→合并导入时，旧并集规则把备份的 `completed` 并进本地新自动生成的 `games`，产生 `completed ⊄ games`（首页丢 2/3 项、连续天数 2→1）。修复 `c2b91b4`：同日计划按 `completed` 更全的一方**整条胜出**、平手留本地；先红后绿，全量 48/591。修后同场景复跑即上面第 5 条。
+- **通道事实（影响后续量颜色的人）**：内置 webview 隐藏时 CSS transition 不推进，深色切换后 `getComputedStyle(body).backgroundColor` 仍报切换前的浅色；临时 `body.style.transitionProperty='none'` + 强制回流才读到目标色。不是产品缺陷。
+- **交真机的残余**：震动是否真的触发（权限已在包内）、声音开关真机听感、剪贴板真实写入与文件选择器、原生 `confirm` 弹窗、深色下刘海 / 手势条观感、标准 1 的「装进手机」。手册 §12 已给出对应步骤。
+- **归属**：第 1/2/4/5/6/7 条的 DOM、存储与路由结论为**浏览器实测（合成事件 / 真 IndexedDB）**；第 1 条的 90ms 下界、合并语义、主题解析与对比度为**单测承接**；震动、声音、剪贴板、文件选择器、原生弹窗与深色观感为**交真机**。
+
 **本文件不构成标准 1 已关闭的宣告。**
 
 ---

@@ -1,4 +1,4 @@
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { GestaltChoiceView, GestaltSnapshot } from './engine';
 import type { FigureStroke, Pt } from './figures';
 import type { Segment } from './fragment';
@@ -39,7 +39,11 @@ function figureSvg(c: GestaltChoiceView): SVGElement {
   return svg(c.strokes.map((s: FigureStroke) => polyline(pointsAttr(s.pts, s.closed))));
 }
 
-export function createGestaltView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<GestaltSnapshot> {
+export function createGestaltView(
+  host: HTMLElement,
+  emit: (e: InputEvent) => void,
+  fx?: Fx,
+): GameView<GestaltSnapshot> {
   const root = document.createElement('div');
   root.className = 'gestalt';
   const info = document.createElement('div');
@@ -51,6 +55,7 @@ export function createGestaltView(host: HTMLElement, emit: (e: InputEvent) => vo
 
   let layoutKey = '';
   let buttons: HTMLElement[] = [];
+  let prevPhase: GestaltSnapshot['phase'] | null = null;
 
   const onDown = (ev: PointerEvent): void => {
     const hit = ev.target instanceof Element ? ev.target.closest('button[data-i]') : null;
@@ -107,6 +112,11 @@ export function createGestaltView(host: HTMLElement, emit: (e: InputEvent) => vo
           : s.phase === 'feedback' || s.phase === 'done'
             ? `反应 ${(s.rtMs / 1000).toFixed(2)} 秒`
             : ' ';
+      if (s.phase === 'feedback' && prevPhase !== 'feedback' && s.answeredIndex !== null) {
+        if (s.answeredIndex === s.correctIndex) fx?.hit();
+        else fx?.miss();
+      }
+      prevPhase = s.phase;
     },
     destroy() {
       stage.removeEventListener('pointerdown', onDown);

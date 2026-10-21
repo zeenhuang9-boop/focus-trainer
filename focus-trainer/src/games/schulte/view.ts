@@ -1,4 +1,4 @@
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { SchulteSnapshot } from './engine';
 
 // 导出只为让 view.test.ts 能把「调色板长度 === TINTS」这条耦合钉住：engine.ts 用
@@ -6,7 +6,11 @@ import type { SchulteSnapshot } from './engine';
 // 会让 setProperty('--tint', undefined) 静默 no-op —— 格子掉回默认底色，无类型错误、无异常、测试全绿。
 export const TINT_COLORS = ['#2b3a4a', '#3a2b4a', '#2b4a3a', '#4a3a2b'];
 
-export function createSchulteView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<SchulteSnapshot> {
+export function createSchulteView(
+  host: HTMLElement,
+  emit: (e: InputEvent) => void,
+  fx?: Fx,
+): GameView<SchulteSnapshot> {
   const root = document.createElement('div');
   root.className = 'schulte';
   const info = document.createElement('div');
@@ -18,6 +22,8 @@ export function createSchulteView(host: HTMLElement, emit: (e: InputEvent) => vo
 
   let layoutKey = '';
   let buttons: HTMLButtonElement[] = [];
+  let prevDone = -1;
+  let prevErrors = -1;
 
   const onDown = (ev: PointerEvent): void => {
     const hit = ev.target instanceof Element ? ev.target.closest('button[data-i]') : null;
@@ -52,6 +58,14 @@ export function createSchulteView(host: HTMLElement, emit: (e: InputEvent) => vo
         // 最后一格若是误点，那格会红到用户点「继续」为止（评审 M-4）。
         buttons[i].classList.toggle('flash', s.flashIndex === i && !s.done);
       });
+      // 上升沿：每帧 render 只在这一格新完成或误点计数增加时触发一次反馈。
+      const doneCount = s.cells.filter((c) => c.done).length;
+      if (prevDone >= 0) {
+        if (s.errors > prevErrors) fx?.miss();
+        else if (doneCount > prevDone) fx?.hit();
+      }
+      prevDone = doneCount;
+      prevErrors = s.errors;
       info.textContent = `下一个 ${s.nextLabel ?? '—'}　用时 ${(s.elapsedMs / 1000).toFixed(1)} 秒　误点 ${s.errors}`;
     },
     destroy() {

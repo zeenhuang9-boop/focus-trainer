@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import { TINTS } from './engine';
 import type { SchulteSnapshot } from './engine';
 import { TINT_COLORS, createSchulteView } from './view';
@@ -126,11 +126,11 @@ interface Mounted {
 }
 
 // view.ts 的结构固定是 root > [info, grid]，grid 的直接子节点就是格子的 number of cells 个按钮
-function mount(s: SchulteSnapshot): Mounted {
+function mount(s: SchulteSnapshot, fx?: Fx): Mounted {
   installDom();
   const host = new StubEl('div');
   const inputs: InputEvent[] = [];
-  const view = createSchulteView(host as unknown as HTMLElement, (e) => inputs.push(e));
+  const view = createSchulteView(host as unknown as HTMLElement, (e) => inputs.push(e), fx);
   view.render(s);
   const root = host.children[0];
   return { host, grid: root.children[1], inputs, view };
@@ -207,5 +207,17 @@ describe('createSchulteView', () => {
     expect(info.textContent).toContain('用时 4.5 秒');
     expect(info.textContent).toContain('误点 3');
     expect(grid.children.map((b) => b.textContent)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+  });
+
+  it('答对一格只 hit 一次、误点只 miss 一次（每帧 render 不重复触发）', () => {
+    const calls: string[] = [];
+    const fx = { tap: () => calls.push('tap'), hit: () => calls.push('hit'), miss: () => calls.push('miss') };
+    const { view } = mount(snap(), fx);
+    const oneDone = [cell('1', true), ...snap().cells.slice(1)];
+    view.render(snap({ cells: oneDone }));
+    view.render(snap({ cells: oneDone }));
+    expect(calls).toEqual(['hit']);
+    view.render(snap({ cells: oneDone, errors: 1, flashIndex: 0 }));
+    expect(calls).toEqual(['hit', 'miss']);
   });
 });

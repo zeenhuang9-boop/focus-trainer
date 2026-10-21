@@ -1,10 +1,10 @@
 // focus-trainer/src/games/mot/view.ts
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { MotSnapshot } from './engine';
 
 const FIELD_CLASS = 'mot-field';
 
-export function createMotView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<MotSnapshot> {
+export function createMotView(host: HTMLElement, emit: (e: InputEvent) => void, fx?: Fx): GameView<MotSnapshot> {
   const root = document.createElement('div');
   root.className = 'mot';
   const info = document.createElement('div');
@@ -17,6 +17,7 @@ export function createMotView(host: HTMLElement, emit: (e: InputEvent) => void):
   // 只在点数变化时重建：每帧 replaceChildren 会打断 transform 的合成层连续性（点会抖），
   // 并把 16 个节点的创建摊到每秒 60 帧上。
   let dots: HTMLElement[] = [];
+  let prevPhase: MotSnapshot['phase'] | null = null;
 
   const onDown = (ev: PointerEvent): void => {
     const rect = field.getBoundingClientRect();
@@ -69,6 +70,13 @@ export function createMotView(host: HTMLElement, emit: (e: InputEvent) => void):
         el.style.transform = `translate3d(${d.x * side}px, ${d.y * side}px, 0)`;
       });
       info.textContent = infoText(s);
+      if (s.phase === 'feedback' && prevPhase !== 'feedback') {
+        const hits = s.dots.filter((d) => d.mark === 'hit').length;
+        const misses = s.dots.filter((d) => d.mark === 'wrong' || d.mark === 'missed').length;
+        if (misses > 0) fx?.miss();
+        else if (hits > 0) fx?.hit();
+      }
+      prevPhase = s.phase;
     },
     destroy() {
       field.removeEventListener('pointerdown', onDown);

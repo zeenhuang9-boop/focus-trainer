@@ -1,6 +1,6 @@
 // focus-trainer/src/games/mot/view.test.ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { MotDotView, MotSnapshot } from './engine';
 import { createMotView } from './view';
 
@@ -114,11 +114,11 @@ interface Mounted {
 }
 
 // view.ts 的结构固定为 root > [info, field]，field 的直接子节点就是点
-function mount(s: MotSnapshot): Mounted {
+function mount(s: MotSnapshot, fx?: Fx): Mounted {
   installDom();
   const host = new StubEl('div');
   const inputs: InputEvent[] = [];
-  const view = createMotView(host as unknown as HTMLElement, (e) => inputs.push(e));
+  const view = createMotView(host as unknown as HTMLElement, (e) => inputs.push(e), fx);
   view.render(s);
   const root = host.children[0];
   return { host, field: root.children[1], inputs, view };
@@ -240,5 +240,18 @@ describe('createMotView', () => {
     expect(field.handlerCount('pointerdown')).toBe(0);
     field.fire('pointerdown', { clientX: 10, clientY: 10, timeStamp: 1 });
     expect(inputs).toHaveLength(0);
+  });
+
+  it('进入 feedback 时按标记触发：有漏选/错选就 miss，全中才 hit', () => {
+    const calls: string[] = [];
+    const fx = { tap: () => calls.push('tap'), hit: () => calls.push('hit'), miss: () => calls.push('miss') };
+    const { view } = mount(snap(), fx);
+    const mixed = [vd({ id: 0, target: true, mark: 'hit' }), vd({ id: 1, target: true, mark: 'missed' })];
+    view.render(snap({ phase: 'feedback', dots: mixed }));
+    view.render(snap({ phase: 'feedback', dots: mixed }));
+    expect(calls).toEqual(['miss']);
+    view.render(snap({ phase: 'motion', dots: mixed }));
+    view.render(snap({ phase: 'feedback', dots: [vd({ id: 0, target: true, mark: 'hit' })] }));
+    expect(calls).toEqual(['miss', 'hit']);
   });
 });

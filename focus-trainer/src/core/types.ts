@@ -74,7 +74,7 @@ export interface GameModule {
   staircase: StaircaseRule;
   instructions: string;
   createEngine(): GameEngine;
-  createView(host: HTMLElement, emit: (e: InputEvent) => void): GameView;
+  createView(host: HTMLElement, emit: (e: InputEvent) => void, fx?: Fx): GameView;
   judge(r: RoundResult): { outcome: Outcome; score01: number };
   summarize(rounds: readonly RoundRecord[]): Record<string, number>;
   formatSummary(summary: Record<string, number>): SummaryItem[];

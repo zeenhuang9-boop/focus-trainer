@@ -1,4 +1,4 @@
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { SeqmemSnapshot } from './engine';
 
 // 顶部提示行：所有措辞只由快照决定，视图不持有任何时间/相位游标（裁定 R-1）。
@@ -14,7 +14,11 @@ function infoText(s: SeqmemSnapshot): string {
   return `记住顺序 · 第 ${s.spanNo} 条 · ${s.span} 格`; // idle / show
 }
 
-export function createSeqmemView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<SeqmemSnapshot> {
+export function createSeqmemView(
+  host: HTMLElement,
+  emit: (e: InputEvent) => void,
+  fx?: Fx,
+): GameView<SeqmemSnapshot> {
   const root = document.createElement('div');
   root.className = 'seqmem';
   const info = document.createElement('div');
@@ -26,6 +30,7 @@ export function createSeqmemView(host: HTMLElement, emit: (e: InputEvent) => voi
 
   let layoutCells = 0;
   let buttons: HTMLButtonElement[] = [];
+  let prevPhase: SeqmemSnapshot['phase'] | null = null;
 
   const onDown = (ev: PointerEvent): void => {
     const hit = ev.target instanceof Element ? ev.target.closest('button[data-i]') : null;
@@ -59,6 +64,11 @@ export function createSeqmemView(host: HTMLElement, emit: (e: InputEvent) => voi
         b.classList.toggle('picked', picked.has(i));
       });
       info.textContent = infoText(s);
+      if (s.phase === 'reveal' && prevPhase !== 'reveal') {
+        if (s.wrongIndex === null) fx?.hit();
+        else fx?.miss();
+      }
+      prevPhase = s.phase;
     },
     destroy() {
       grid.removeEventListener('pointerdown', onDown);

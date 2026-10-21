@@ -1,8 +1,12 @@
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { StroopSnapshot } from './engine';
 import { STROOP_COLORS, WHITE_TEXT } from './rules';
 
-export function createStroopView(host: HTMLElement, emit: (e: InputEvent) => void): GameView<StroopSnapshot> {
+export function createStroopView(
+  host: HTMLElement,
+  emit: (e: InputEvent) => void,
+  fx?: Fx,
+): GameView<StroopSnapshot> {
   const root = document.createElement('div');
   root.className = 'stroop';
   const rule = document.createElement('div');
@@ -18,6 +22,7 @@ export function createStroopView(host: HTMLElement, emit: (e: InputEvent) => voi
 
   let layoutKey = '';
   let buttons: HTMLButtonElement[] = [];
+  let prevPhase: StroopSnapshot['phase'] | null = null;
 
   const onDown = (ev: PointerEvent): void => {
     const hit = ev.target instanceof Element ? ev.target.closest('button[data-i]') : null;
@@ -56,6 +61,11 @@ export function createStroopView(host: HTMLElement, emit: (e: InputEvent) => voi
         buttons[i].classList.toggle('locked', s.phase === 'fixation');
       });
       info.textContent = `第 ${s.trialNo}/${s.trialsTotal} 试次　正确 ${s.correctCount}　超时 ${s.timeoutCount}`;
+      if (s.phase === 'feedback' && prevPhase !== 'feedback') {
+        if (s.feedbackOk) fx?.hit();
+        else fx?.miss();
+      }
+      prevPhase = s.phase;
     },
     destroy() {
       options.removeEventListener('pointerdown', onDown);

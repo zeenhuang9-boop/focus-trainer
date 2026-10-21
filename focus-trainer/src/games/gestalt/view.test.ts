@@ -1,7 +1,7 @@
 // 纪律扫描要读源码文本；node 类型由 @capacitor/cli 传递带入，仓库不直接声明
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { GestaltChoiceView, GestaltSnapshot } from './engine';
 import type { Segment } from './fragment';
 import { SVG_NS, createGestaltView, pointsAttr, segmentPoints } from './view';
@@ -156,11 +156,11 @@ interface Mounted {
 }
 
 // view.ts 的结构固定为 root > [info, stage]，stage 的直接子节点随阶段整体替换
-function mount(s: GestaltSnapshot): Mounted {
+function mount(s: GestaltSnapshot, fx?: Fx): Mounted {
   installDom();
   const host = new StubEl('div');
   const inputs: InputEvent[] = [];
-  const view = createGestaltView(host as unknown as HTMLElement, (e) => inputs.push(e));
+  const view = createGestaltView(host as unknown as HTMLElement, (e) => inputs.push(e), fx);
   view.render(s);
   const root = host.children[0];
   return { host, stage: root.children[1], inputs, view };
@@ -223,6 +223,19 @@ describe('阶段渲染互斥（答案阵列不得在暴露期出现）', () => {
     expect(buttons[1].classes.has('wrong')).toBe(true);
     expect(buttons[0].classes.has('wrong')).toBe(false);
     expect(buttons[0].classes.has('right')).toBe(false);
+  });
+
+  it('进入 feedback 的上升沿按对错各触发一次', () => {
+    const calls: string[] = [];
+    const fx = { tap: () => calls.push('tap'), hit: () => calls.push('hit'), miss: () => calls.push('miss') };
+    const { view } = mount(snap(), fx);
+    const choices = [choice('circle'), choice('bolt'), choice('star5'), choice('house')];
+    view.render(snap({ phase: 'feedback', choices, answeredIndex: 1, correctIndex: 1 }));
+    view.render(snap({ phase: 'feedback', choices, answeredIndex: 1, correctIndex: 1 }));
+    expect(calls).toEqual(['hit']);
+    view.render(snap({ phase: 'answer', choices }));
+    view.render(snap({ phase: 'feedback', choices, answeredIndex: 0, correctIndex: 1 }));
+    expect(calls).toEqual(['hit', 'miss']);
   });
 });
 

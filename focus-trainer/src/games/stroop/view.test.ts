@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { StroopSnapshot } from './engine';
 import { STROOP_COLORS, WHITE_TEXT } from './rules';
 import { createStroopView } from './view';
@@ -139,11 +139,11 @@ interface Mounted {
   view: GameView<StroopSnapshot>;
 }
 
-function mount(s: StroopSnapshot): Mounted {
+function mount(s: StroopSnapshot, fx?: Fx): Mounted {
   installDom();
   const host = new StubEl('div');
   const inputs: InputEvent[] = [];
-  const view = createStroopView(host as unknown as HTMLElement, (e) => inputs.push(e));
+  const view = createStroopView(host as unknown as HTMLElement, (e) => inputs.push(e), fx);
   view.render(s);
   const root = host.children[0];
   const find = (cls: string): StubEl => root.children.find((c) => c.classes.has(cls)) ?? new StubEl('missing');
@@ -252,5 +252,17 @@ describe('createStroopView', () => {
   it('信息行显示试次进度与正确、超时计数', () => {
     const m = mount(snap({ trialNo: 7, correctCount: 5, timeoutCount: 1 }));
     expect(m.info.textContent).toBe('第 7/12 试次　正确 5　超时 1');
+  });
+
+  it('进入 feedback 的上升沿按对错各触发一次', () => {
+    const calls: string[] = [];
+    const fx = { tap: () => calls.push('tap'), hit: () => calls.push('hit'), miss: () => calls.push('miss') };
+    const { view } = mount(snap(), fx);
+    view.render(snap({ phase: 'feedback', feedbackChoice: 1, feedbackOk: true }));
+    view.render(snap({ phase: 'feedback', feedbackChoice: 1, feedbackOk: true }));
+    expect(calls).toEqual(['hit']);
+    view.render(snap());
+    view.render(snap({ phase: 'feedback', feedbackChoice: null, feedbackOk: false }));
+    expect(calls).toEqual(['hit', 'miss']);
   });
 });

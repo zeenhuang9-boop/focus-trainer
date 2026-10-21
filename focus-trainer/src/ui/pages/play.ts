@@ -4,6 +4,8 @@ import { GAMES, getGame } from '../../games/registry';
 import { EXIT_CONFIRM } from '../back-rule';
 import type { AppContext } from '../context';
 import { h } from '../dom';
+import { createFx } from '../fx';
+import { attachPressDwell } from '../press';
 import { navigate } from '../router';
 import { saveFinishedSession } from '../today';
 
@@ -82,7 +84,18 @@ export async function renderPlay(
     h('div', { class: 'stage' }, stageGame, overlay),
   );
 
-  const gameView = game.createView(stageGame, (e) => runner.input(e));
+  const fx = createFx(ctx.settings);
+  const gameView = game.createView(
+    stageGame,
+    (e) => {
+      // 视图只会 emit 有效输入（按钮命中或 MOT 的阶段点击），所以包在 emit 外层即可，
+      // 不碰计时与判分。
+      fx.tap();
+      runner.input(e);
+    },
+    fx,
+  );
+  const detachPress = attachPressDwell(stageGame);
 
   // 深色刺激区：给 body 挂 .training，让 --bg/--panel/--line/--text/--muted/--accent 这组旧名
   // 在训练路由里改回刺激量的取值（styles.css 的 body.training）。底色过渡（240ms）发生在
@@ -203,6 +216,7 @@ export async function renderPlay(
     'abort',
     () => {
       cancelAnimationFrame(raf);
+      detachPress();
       gameView.destroy();
       // 离开训练路由必须把深底摘掉：下一次渲染的是纸面页（首页/趋势/设置/结算），
       // 残留 .training 会让纸面页继续吃刺激区的取值，纸色过渡也就不会发生。

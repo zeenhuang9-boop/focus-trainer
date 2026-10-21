@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { GameView, InputEvent } from '../../core/types';
+import type { Fx, GameView, InputEvent } from '../../core/types';
 import type { SeqmemSnapshot } from './engine';
 import { createSeqmemView } from './view';
 
@@ -123,11 +123,11 @@ interface Mounted {
 }
 
 // view.ts 的结构固定是 root > [info, grid]，grid 的直接子节点就是 cells 个空格按钮
-function mount(s: SeqmemSnapshot): Mounted {
+function mount(s: SeqmemSnapshot, fx?: Fx): Mounted {
   installDom();
   const host = new StubEl('div');
   const inputs: InputEvent[] = [];
-  const view = createSeqmemView(host as unknown as HTMLElement, (e) => inputs.push(e));
+  const view = createSeqmemView(host as unknown as HTMLElement, (e) => inputs.push(e), fx);
   view.render(s);
   const root = host.children[0];
   return { host, info: root.children[0], grid: root.children[1], inputs, view };
@@ -225,5 +225,17 @@ describe('createSeqmemView', () => {
     expect(grid.handlerCount('pointerdown')).toBe(0);
     grid.fire('pointerdown', { target: grid.children[0], timeStamp: 1 });
     expect(inputs).toHaveLength(0);
+  });
+
+  it('进入 reveal 的上升沿按对错触发，回放后再错一次仍会 miss', () => {
+    const calls: string[] = [];
+    const fx = { tap: () => calls.push('tap'), hit: () => calls.push('hit'), miss: () => calls.push('miss') };
+    const { view } = mount(snap(), fx);
+    view.render(snap({ phase: 'reveal', tapped: [0, 1, 2], wrongIndex: null }));
+    view.render(snap({ phase: 'reveal', tapped: [0, 1, 2], wrongIndex: null }));
+    expect(calls).toEqual(['hit']);
+    view.render(snap({ phase: 'replay' }));
+    view.render(snap({ phase: 'reveal', wrongIndex: 4 }));
+    expect(calls).toEqual(['hit', 'miss']);
   });
 });

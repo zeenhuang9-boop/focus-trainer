@@ -174,6 +174,18 @@ button:disabled {
   opacity: 0.4;
 }
 
+/* 按下态至少驻留 90ms（src/ui/press.ts）。只用于训练区按钮：play.ts 把监听挂在
+   .stage-game 上，说明层与页签都不会被这条规则影响。 */
+button.is-pressed {
+  transform: translateY(1px) scale(0.985);
+  filter: brightness(0.92);
+}
+
+/* MOT 的点位置由 inline transform 驱动，按下态只调亮度，不碰 transform。 */
+.mot-dot.is-pressed {
+  filter: brightness(1.35);
+}
+
 /* 焦点环：普鲁士蓝对纸底 7.44:1（判据只要 ≥3:1）；深色舞台里换成 --accent，
    因为 --focus 对 #10151a 只有 2.15:1，看不见就等于没有焦点态 */
 :focus-visible {
@@ -224,6 +236,20 @@ body.training :focus-visible {
 .card.done {
   border-color: var(--done);
   color: var(--muted);
+}
+
+/* 设置页的两个开关用整行 <label class="card"> 当触控面（56px 行高），复选框只负责看得清。
+   必须放在 .card 规则之后：styles.test.ts 的 decl('.card', …) 只认第一处「.card {」，
+   写在前面的 label.card 会被它当成 .card 本体而读不到 background。 */
+label.card {
+  cursor: pointer;
+}
+
+.card input[type='checkbox'] {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--focus);
 }
 
 /* 区段头：拉丁眉标 + 中文名，一行搞定，不再多占一档字号 */
@@ -960,5 +986,8 @@ body.training #tabbar {
   }
   .warmup-cell.shake {
     animation-duration: 0ms;
+  }
+  button.is-pressed {
+    transform: none;
   }
 }

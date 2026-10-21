@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createBackup } from '../../core/backup';
 import { MemoryRepository } from '../../core/storage';
-import type { Settings } from '../../core/types';
+import type { GameId, GameState, SessionRecord, Settings } from '../../core/types';
 import type { AppContext } from '../context';
 import { renderSettings } from './settings';
 
@@ -18,6 +19,7 @@ class StubEl {
   checked = false;
   selected = false;
   value = '';
+  files: Array<{ text(): Promise<string> }> | null = null;
   text = '';
   private readonly handlers: Array<{ type: string; fn: (ev: never) => void }> = [];
 
@@ -108,6 +110,34 @@ class StubEl {
 
 const BASE: Settings = { dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false };
 
+const session = (gameId: GameId, startedAt: number): SessionRecord => ({
+  gameId,
+  mode: 'free',
+  dayKey: '2026-10-18',
+  startedAt,
+  durationMs: 1000,
+  startLevel: 1,
+  endLevel: 2,
+  rounds: [],
+  summary: { bestTimeMs: 5000 },
+  ability: 12,
+});
+
+const gameState = (gameId: GameId, level: number): GameState => ({
+  gameId,
+  level,
+  passStreak: 0,
+  failStreak: 0,
+  lastPlayedDayKey: '2026-10-18',
+});
+
+/** 用真实 createBackup 产出备份 JSON，避免手写格式在页面层和 Task 5 之间漂移。 */
+async function backupJson(seed: (repo: MemoryRepository) => Promise<void>): Promise<string> {
+  const repo = new MemoryRepository();
+  await seed(repo);
+  return JSON.stringify(await createBackup(repo, 1000));
+}
+
 async function setup(initial: Settings = BASE) {
   const view = new StubEl('main');
   const documentElement = new StubEl('html');
@@ -117,6 +147,9 @@ async function setup(initial: Settings = BASE) {
   const ac = new AbortController();
   // 桩里明确没有 matchMedia：auto 必须解析为浅色，不依赖宿主环境碰巧如何。
   vi.stubGlobal('matchMedia', undefined);
+  let confirmAnswer = true;
+  const confirmMock = vi.fn(() => confirmAnswer);
+  vi.stubGlobal('confirm', confirmMock);
   vi.stubGlobal('document', {
     createElement: (tag: string) => new StubEl(tag),
     documentElement,
@@ -131,9 +164,21 @@ async function setup(initial: Settings = BASE) {
     ctx,
     ac,
     documentElement,
+    confirmMock,
+    setConfirm: (answer: boolean): void => {
+      confirmAnswer = answer;
+    },
     render: (): Promise<void> => renderSettings(view as unknown as HTMLElement, ctx, ac.signal),
     themeSelect: (): StubEl => requireEl(view.find((x) => x.tag === 'select' && x.getAttribute('aria-label') === '主题'), '主题下拉'),
+    dayStartSelect: (): StubEl =>
+      requireEl(view.find((x) => x.tag === 'select' && x.getAttribute('aria-label') === '每日分界时间'), '每日分界时间下拉'),
     haptics: (): StubEl => requireEl(view.find((x) => x.tag === 'input' && x.getAttribute('aria-label') === '震动反馈'), '震动反馈复选框'),
+    sound: (): StubEl => requireEl(view.find((x) => x.tag === 'input' && x.getAttribute('aria-label') === '声音反馈'), '声音反馈复选框'),
+    backupText: (): StubEl => requireEl(view.find((x) => x.tag === 'textarea' && x.getAttribute('aria-label') === '备份内容'), '备份内容文本框'),
+    pasteText: (): StubEl => requireEl(view.find((x) => x.tag === 'textarea' && x.getAttribute('aria-label') === '导入内容'), '导入内容文本框'),
+    backupNote: (): StubEl => requireEl(view.find((x) => x.getAttribute('aria-live') === 'polite'), '备份提示'),
+    fileInput: (): StubEl => requireEl(view.find((x) => x.tag === 'input' && x.getAttribute('aria-label') === '选择备份文件'), '文件选择框'),
+    button: (label: string): StubEl => requireEl(view.find((x) => x.tag === 'button' && x.textContent === label), label),
   };
 }
 
@@ -200,5 +245,127 @@ describe('renderSettings 的震动开关', () => {
     });
     // 主题没被这次保存顺手重写：页面上的 dataset 仍是打开设置页前的深色
     expect(h.ctx.settings.theme).toBe('dark');
+  });
+});
+
+describe('renderSettings 的备份区', () => {
+  it('合并导入：粘贴真实备份 JSON，确认后新增 session 并提示导入完成', async () => {
+    const h = await setup();
+    await h.render();
+    h.pasteText().value = await backupJson(async (repo) => {
+      await repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
+    });
+
+    h.setConfirm(true);
+    h.button('合并导入').fire('click');
+
+    await vi.waitFor(async () => {
+      expect((await h.repo.listSessions()).map((s) => [s.gameId, s.startedAt])).toEqual([['schulte', 100]]);
+    });
+    expect(h.confirmMock).toHaveBeenCalledWith('导入会合并到现有记录，继续？');
+    expect(h.backupNote().textContent).toContain('导入完成');
+    // 合并走默认模式：本地仍是默认设置时接受备份设置，这里备份也是默认值
+    expect(await h.repo.getSettings()).toEqual(BASE);
+  });
+
+  it('覆盖导入取消：confirm=false 时仓库原有 session 与提示都不变', async () => {
+    const h = await setup();
+    await h.repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
+    await h.render();
+    const beforeNote = h.backupNote().textContent;
+    h.pasteText().value = await backupJson(async (repo) => {
+      await repo.saveSession(session('mot', 200), gameState('mot', 2), null);
+    });
+
+    h.setConfirm(false);
+    h.button('覆盖导入').fire('click');
+
+    expect(h.confirmMock).toHaveBeenCalledWith(
+      '覆盖导入会用备份整体替换本机全部训练记录、档位、计划和设置，且不能撤销。继续？',
+    );
+    expect((await h.repo.listSessions()).map((s) => [s.gameId, s.startedAt])).toEqual([['schulte', 100]]);
+    expect(h.backupNote().textContent).toBe(beforeNote);
+  });
+
+  it('覆盖导入确认：旧记录被整体替换，设置控件同步为备份里的值', async () => {
+    const localSettings: Settings = { dayStartHour: 2, theme: 'light', hapticsEnabled: false, soundEnabled: true };
+    const h = await setup(localSettings);
+    await h.repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
+    await h.render();
+
+    const backupSettings: Settings = { dayStartHour: 6, theme: 'dark', hapticsEnabled: true, soundEnabled: false };
+    h.pasteText().value = await backupJson(async (repo) => {
+      await repo.saveSession(session('mot', 200), gameState('mot', 4), null);
+      await repo.putSettings(backupSettings);
+    });
+
+    h.setConfirm(true);
+    h.button('覆盖导入').fire('click');
+
+    await vi.waitFor(async () => {
+      expect(await h.repo.getSettings()).toEqual(backupSettings);
+    });
+    // 本地旧 session 消失，仓库数据等于备份
+    expect((await h.repo.listSessions()).map((s) => [s.gameId, s.startedAt])).toEqual([['mot', 200]]);
+    expect(await h.repo.listGameStates()).toEqual([gameState('mot', 4)]);
+    expect(h.ctx.settings).toEqual(backupSettings);
+    expect(h.documentElement.dataset.theme).toBe('dark');
+
+    // 覆盖导入会换掉设置：页面上的四个控件都得跟着新的 ctx.settings 走
+    expect(h.themeSelect().value).toBe('dark');
+    expect(h.themeSelect().children.find((o) => o.selected)?.getAttribute('value')).toBe('dark');
+    expect(h.dayStartSelect().value).toBe('6');
+    expect(h.dayStartSelect().children.find((o) => o.selected)?.getAttribute('value')).toBe('6');
+    expect(h.haptics().checked).toBe(true);
+    expect(h.sound().checked).toBe(false);
+    expect(h.backupNote().textContent).toContain('导入完成');
+  });
+
+  it('坏 JSON：合并导入提示导入失败，仓库不变', async () => {
+    const h = await setup();
+    await h.render();
+    h.pasteText().value = '{这不是 JSON';
+
+    h.setConfirm(true);
+    h.button('合并导入').fire('click');
+
+    await vi.waitFor(() => {
+      expect(h.backupNote().textContent).toContain('导入失败');
+    });
+    expect(await h.repo.listSessions()).toEqual([]);
+    expect(await h.repo.getSettings()).toEqual(BASE);
+  });
+
+  it('选择文件只把文本填进粘贴框并提示选择导入方式，不直接导入', async () => {
+    const h = await setup();
+    await h.render();
+    const json = await backupJson(async (repo) => {
+      await repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
+    });
+
+    h.fileInput().files = [{ text: async () => json }];
+    h.fileInput().fire('change');
+
+    await vi.waitFor(() => {
+      expect(h.pasteText().value).toBe(json);
+    });
+    expect(h.backupNote().textContent).toBe('已读取文件，请选择合并导入或覆盖导入。');
+    expect(await h.repo.listSessions()).toEqual([]);
+  });
+
+  it('覆盖导入按钮带 danger 类；剪贴板不可用时导出只提示长按复制', async () => {
+    // README/WebView 里 navigator.clipboard 可能整个不存在：不能误报已复制。
+    vi.stubGlobal('navigator', { clipboard: undefined });
+    const h = await setup();
+    await h.render();
+
+    expect(h.button('覆盖导入').className.split(' ')).toContain('danger');
+
+    h.button('导出备份').fire('click');
+    await vi.waitFor(() => {
+      expect(h.backupNote().textContent).toContain('长按复制');
+    });
+    expect(h.backupNote().textContent).not.toContain('已复制');
+    expect(() => JSON.parse(h.backupText().value)).not.toThrow();
   });
 });

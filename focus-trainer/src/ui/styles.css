@@ -1006,6 +1006,27 @@ body.training #tabbar {
   border-color: var(--rule);
 }
 
+/* 备份文本框：body 上有 user-select: none，这里必须显式恢复，
+   否则「剪贴板失败 → 长按手动复制」这条兜底路径在真机上根本用不了。 */
+.backup-text {
+  width: 100%;
+  min-height: 96px;
+  padding: 8px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  resize: vertical;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 四个备份按钮在 360px 宽的手机上排不进一行：允许换行，但不改全局 .row。 */
+.backup-actions {
+  flex-wrap: wrap;
+}
+
 /* ===== 动效只有三处：底色过渡 240ms、单格点亮 120ms、点错抖动 200ms =====
    reduced-motion 下全部降到 0ms，且不隐藏任何信息（done 格仍转苔绿、抖动改成静止变色）。 */
 @media (prefers-reduced-motion: reduce) {

@@ -164,6 +164,49 @@ describe('备份导出与导入', () => {
     expect((await target.getGameState('schulte')).lastPlayedDayKey).toBe('2026-10-20');
   });
 
+  it('同日计划 games 不同：completed 更全的一份整条胜出', async () => {
+    const localPlan: DayPlan = { dayKey: '2026-10-21', games: ['schulte', 'stroop', 'seqmem'], completed: [] };
+    const backupPlan: DayPlan = { dayKey: '2026-10-21', games: ['mot', 'gestalt', 'seqmem'], completed: ['seqmem', 'gestalt', 'mot'] };
+
+    const target = new MemoryRepository();
+    await target.putPlan(localPlan);
+    const source = new MemoryRepository();
+    await source.putPlan(backupPlan);
+
+    const s = await importBackup(target, parseBackup(await roundTrip(source)));
+    expect(s.mergedPlans).toBe(1);
+    expect(await target.getPlan('2026-10-21')).toEqual(backupPlan);
+    const merged = await target.getPlan('2026-10-21');
+    expect(merged).not.toBeNull();
+    for (const id of merged!.completed) expect(merged!.games).toContain(id);
+
+    // (a) 本地 completed 更多：本地整条保留，备份里不同的 games 不掺进来
+    const localAhead: DayPlan = {
+      dayKey: '2026-10-22',
+      games: ['schulte', 'stroop', 'mot'],
+      completed: ['schulte', 'stroop'],
+    };
+    const backupBehind: DayPlan = { dayKey: '2026-10-22', games: ['mot', 'gestalt'], completed: ['mot'] };
+    const targetA = new MemoryRepository();
+    await targetA.putPlan(localAhead);
+    const sourceA = new MemoryRepository();
+    await sourceA.putPlan(backupBehind);
+    const sa = await importBackup(targetA, parseBackup(await roundTrip(sourceA)));
+    expect(sa.mergedPlans).toBe(0);
+    expect(await targetA.getPlan('2026-10-22')).toEqual(localAhead);
+
+    // (b) completed 等长但 games 不同：平手保留本地
+    const localTie: DayPlan = { dayKey: '2026-10-23', games: ['schulte', 'stroop'], completed: ['schulte'] };
+    const backupTie: DayPlan = { dayKey: '2026-10-23', games: ['mot', 'gestalt'], completed: ['mot'] };
+    const targetB = new MemoryRepository();
+    await targetB.putPlan(localTie);
+    const sourceB = new MemoryRepository();
+    await sourceB.putPlan(backupTie);
+    const sb = await importBackup(targetB, parseBackup(await roundTrip(sourceB)));
+    expect(sb.mergedPlans).toBe(0);
+    expect(await targetB.getPlan('2026-10-23')).toEqual(localTie);
+  });
+
   it('overwrite：四类数据整体替换为备份内容，本地旧数据消失', async () => {
     const target = new MemoryRepository();
     await target.saveSession(rec('mot', 50), state('mot', 9), plan('2026-10-01', ['mot']));

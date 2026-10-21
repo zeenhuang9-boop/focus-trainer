@@ -214,9 +214,8 @@ export async function importBackup(
       mergedPlans += 1;
       continue;
     }
-    const completed = [...cur.completed, ...p.completed.filter((id) => !cur.completed.includes(id))];
-    if (completed.length !== cur.completed.length) {
-      planByDay.set(p.dayKey, { ...cur, completed });
+    if (p.completed.length > cur.completed.length) {
+      planByDay.set(p.dayKey, { ...p, games: [...p.games], completed: [...p.completed] });
       mergedPlans += 1;
     }
   }

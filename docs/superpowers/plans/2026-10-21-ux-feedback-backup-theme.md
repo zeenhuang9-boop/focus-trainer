@@ -38,6 +38,150 @@ npx tsc --noEmit && npx vitest run
 
 ---
 
+## Controller amendments（2026-10-21，优先级高于下文代码片段）
+
+用户确认的五节设计有三处在下文被收窄或换了数值。凡与本节冲突，以本节为准；下文未提及的部分照旧。
+
+### A1 `Fx` 必须是三个方法，`tap()` 不能省
+
+用户设计原文是「play.ts 包一层 emit，每次有效输入 fx.tap()」。下文 Task 2 只写了 `hit/miss`，Task 3 的 play.ts 也没包 `tap`，属于无声的缩水。恢复为：
+
+```ts
+export interface Fx {
+  tap(): void;
+  hit(): void;
+  miss(): void;
+}
+```
+
+测试里的假 FX 也要带 `tap: () => calls.push('tap')`（视图测试只断言 hit/miss，不受影响）。
+
+### A2 固定值按设计原文，不按 Task 2 的 25/60/70
+
+`FxEnv.vibrate` 接受 `number | number[]`。`createFx` 的三条通道：
+
+```ts
+tap() {
+  if (settings.hapticsEnabled) env.vibrate(8);
+},
+hit() {
+  if (settings.hapticsEnabled) env.vibrate(12);
+  if (settings.soundEnabled) env.tone(880, 60);
+},
+miss() {
+  if (settings.hapticsEnabled) env.vibrate([18, 40, 18]);
+  if (settings.soundEnabled) env.tone(220, 120);
+}
+```
+
+Task 2 的测试改成先 `fx.tap(); fx.hit(); fx.miss();`，断言：
+
+```ts
+expect(e.vibrate.mock.calls).toEqual([[8], [12], [[18, 40, 18]]]);
+expect(e.tone.mock.calls).toEqual([[880, 60], [220, 120]]);
+```
+
+关闭两开关的用例也要把 `tap()` 一起调掉并断言零调用。
+
+### A3 play.ts 每次有效输入先 `tap()`，再交给引擎
+
+```ts
+const fx = createFx(ctx.settings);
+const gameView = game.createView(
+  stageGame,
+  (e) => {
+    fx.tap();
+    runner.input(e);
+  },
+  fx,
+);
+```
+
+视图只会 emit 有效输入（按钮命中或 MOT 的阶段点击），所以包在 emit 外层即可，不碰计时与判分。
+
+### A4 备份载荷带 `format` 标记，兼容 `app`
+
+```ts
+export const BACKUP_APP = 'focus-trainer';
+export const BACKUP_FORMAT = 'focus-trainer/backup';
+export const BACKUP_VERSION = 1;
+
+export interface BackupData extends RepoDump {
+  format: typeof BACKUP_FORMAT;
+  app: typeof BACKUP_APP;
+  version: typeof BACKUP_VERSION;
+  exportedAt: number;
+}
+```
+
+`createBackup` 同时写 `format` 与 `app`。`parseBackup` 的标记判据：
+
+```ts
+if (o.format !== BACKUP_FORMAT && o.app !== BACKUP_APP) {
+  throw new Error('不是本应用的备份（缺少 format 标记）');
+}
+```
+
+Task 5/8 里「文本以 `{"app":"focus-trainer"` 开头」的验收改判 `{"format":"focus-trainer/backup"`。
+
+### A5 合并键与档位比较按设计原文
+
+- session 去重键：`` `${s.gameId}|${s.startedAt}` ``（不带 dayKey；`dayKey` 由开始时间与分界时间派生）。
+- gameState：档位高者胜；同档位时 `lastPlayedDayKey` 较新者胜（null 视作空串）。实现：
+
+```ts
+const newerState = (a: GameState, b: GameState): boolean =>
+  a.level !== b.level ? a.level > b.level : (a.lastPlayedDayKey ?? '') > (b.lastPlayedDayKey ?? '');
+```
+
+- plan：同 dayKey 的 `completed` 取并集（下文原样）。
+
+### A6 导入必须同时提供「合并」与「覆盖」
+
+下文 Task 6 只做了合并。恢复设计：
+
+```ts
+export async function importBackup(
+  repo: Repository,
+  data: BackupData,
+  mode: 'merge' | 'overwrite' = 'merge',
+): Promise<ImportSummary>;
+```
+
+- `overwrite`：给缺 id 的 session 依次补 id，然后 `repo.loadAll({ sessions, gameStates, plans, settings: data.settings })`，整库替换；summary 的计数就是备份里的条数。设置也随备份恢复。
+- `merge`：按 A5 合并；本地设置不是默认值时不覆盖（下文原判定保留）。
+
+设置页交互：文件选择器只把文件内容读进「导入内容」文本框并提示「已读取，请选择合并或覆盖」，不自动导入。页面提供两个按钮「合并导入」「覆盖导入」；覆盖按钮先 `confirm('覆盖导入会清空现有记录，继续？')`，合并也保留现有的确认。
+
+### A7 按压驻留多认一类目标：MOT 的点
+
+五个游戏里四个的输入是 `<button>`；MOT 是 `.mot-field` 里的 `.mot-dot`（div）。选择器改成：
+
+```ts
+const PRESS_SELECTOR = 'button, .mot-dot';
+```
+
+CSS 分开写，避免给 MOT 的点加 transform（它的位置由 inline transform 驱动）：
+
+```css
+button.is-pressed {
+  transform: translateY(1px) scale(0.985);
+  filter: brightness(0.92);
+}
+
+.mot-dot.is-pressed {
+  filter: brightness(1.35);
+}
+```
+
+MOT 点空白处仍只有 `tap()` 的触觉回执，不追求视觉驻留。
+
+### A8 不做的：结果色的 90ms transition-delay
+
+设计原文提到「对错变色再叠 transition-delay: 90ms」。实现时只保留按压驻留这一处 90ms；给判分结果再加延迟会让「答完到看见对错」变慢，且与减少等待的目标相反。若真机上仍觉得反馈太急，再用一条独立 CSS 补。
+
+---
+
 ## 文件结构
 
 | 文件 | 新建/修改 | 责任 |
@@ -61,7 +205,7 @@ npx tsc --noEmit && npx vitest run
 | `focus-trainer/src/main.ts` | 改 | boot 时应用主题 + 监听系统主题变化 |
 | `focus-trainer/src/main.test.ts` | 改 | `documentElement` 桩、设置字面量、主题断言 |
 | `focus-trainer/src/core/storage.test.ts` | 改 | 设置默认值/往返、`dumpAll/loadAll` 三例（两种实现各跑一遍） |
-| `focus-trainer/.superpowers` 之外的四份页面测试 | 改 | 只改 `ctx.settings` 字面量 |
+| `focus-trainer/src/ui/pages/*.test.ts`（四份） | 改 | 只改 `ctx.settings` 字面量 |
 | `focus-trainer/android/app/src/main/AndroidManifest.xml` | 改 | `VIBRATE` 权限 |
 | `focus-trainer/scripts/verify-apk.mjs` | 改 | 第 14 项断言 |
 | `docs/superpowers/plans/2026-10-20-m4-acceptance.md` | 改 | §13 记录新包身份与新口径 |
@@ -181,7 +325,7 @@ import { DEFAULT_SETTINGS, MemoryRepository, defaultGameState, openIdbRepository
 - [ ] **Step 4: 跑门槛确认红→绿**
 
 Run: `npx tsc --noEmit`
-Expected: 改测试之前会报 `Property 'theme' is missing` 等；改完后无输出。
+Expected: 无输出（若在改测试字面量之前跑，会看到 `Property 'theme' is missing …` 指向尚未同步的测试对象；按 Step 3 改完即消失）。
 
 Run: `npx vitest run src/core/storage.test.ts src/main.test.ts src/ui/pages`
 Expected: 全绿。
@@ -399,6 +543,13 @@ function mount(s: SchulteSnapshot, fx?: Fx): Mounted {
 ```
 
 文件顶部 `import type { Fx, GameView, InputEvent } from '../../core/types';`（其余四处把 `Fx` 加进已有的类型导入）。
+
+其余四处的改法相同，只换快照类型与工厂名，第三参一律透传 `fx`：
+
+- `function mount(s: StroopSnapshot, fx?: Fx): Mounted` → `createStroopView(host as unknown as HTMLElement, (e) => inputs.push(e), fx)`
+- `function mount(s: SeqmemSnapshot, fx?: Fx): Mounted` → `createSeqmemView(host as unknown as HTMLElement, (e) => inputs.push(e), fx)`
+- `function mount(s: MotSnapshot, fx?: Fx): Mounted` → `createMotView(host as unknown as HTMLElement, (e) => inputs.push(e), fx)`
+- `function mount(s: GestaltSnapshot, fx?: Fx): Mounted` → `createGestaltView(host as unknown as HTMLElement, (e) => inputs.push(e), fx)`
 
 每个文件新增一条用例（放在 `describe('createXxxView')` 末尾）：
 
@@ -712,7 +863,13 @@ import { attachPressDwell } from '../press';
 
 - [ ] **Step 8: 设置页补两个开关**
 
-`src/ui/pages/settings.ts` 顶部导入 `Settings` 类型，插入在 `HOURS` 之后：
+`src/ui/pages/settings.ts` 顶部导入：
+
+```ts
+import type { Settings } from '../../core/types';
+```
+
+插入在 `HOURS` 之后：
 
 ```ts
 async function save(ctx: AppContext, patch: Partial<Settings>, note: HTMLElement, text: string): Promise<void> {
@@ -721,6 +878,15 @@ async function save(ctx: AppContext, patch: Partial<Settings>, note: HTMLElement
   ctx.settings = settings;
   note.textContent = text;
 }
+```
+
+把现有的 `select.addEventListener('change', async () => { ... })`（`:19-24`）整段替换成走 `save` 的这一段——全页只留一条写设置的路径：
+
+```ts
+  select.addEventListener('change', () => {
+    const dayStartHour = Number(select.value);
+    void save(ctx, { dayStartHour }, note, `已保存：每天 ${dayStartHour}:00 开始新的一天。`);
+  });
 ```
 
 （Task 4 会在这个函数体里补 `applyTheme`，所以先把它做成单独函数。）
@@ -740,14 +906,12 @@ async function save(ctx: AppContext, patch: Partial<Settings>, note: HTMLElement
   });
 ```
 
-`view.replaceChildren(...)` 里，在每日分界时间的卡片后面加：
+`view.replaceChildren(...)` 里，在每日分界时间的卡片后面加两行 `<label class="card">`——整行可点，复选框本身不用撑到 48px 也就有了 56px 的触控行高：
 
 ```ts
-    h('div', { class: 'card' }, h('span', null, '震动反馈'), h('span', { class: 'spacer' }), haptics),
-    h('div', { class: 'card' }, h('span', null, '声音反馈'), h('span', { class: 'spacer' }), sound),
+    h('label', { class: 'card' }, h('span', null, '震动反馈'), h('span', { class: 'spacer' }), haptics),
+    h('label', { class: 'card' }, h('span', null, '声音反馈'), h('span', { class: 'spacer' }), sound),
 ```
-
-原来的 `select` change 处理器可以保留原样（它自己构造设置对象），也可以改成调 `save`；二选一，别留下两套写法。
 
 - [ ] **Step 9: 加 `.is-pressed` 样式**
 
@@ -759,6 +923,18 @@ async function save(ctx: AppContext, patch: Partial<Settings>, note: HTMLElement
 button.is-pressed {
   transform: translateY(1px) scale(0.985);
   filter: brightness(0.92);
+}
+
+/* 设置页的两个开关用整行 <label class="card"> 当触控面（56px 行高），复选框只负责看得清。 */
+label.card {
+  cursor: pointer;
+}
+
+.card input[type='checkbox'] {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--focus);
 }
 ```
 
@@ -786,7 +962,7 @@ git commit -m "feat(ux): 五个游戏接上升沿反馈，点按驻留 90ms，�
 
 ### Task 4: 深色主题（跟随系统 / 浅色 / 深色）
 
-`html[data-theme]` + 一组 token 覆盖；`boot()` 应用并在 `auto` 下监听系统变化；设置页加主题选择。深色块的插入位置必须在 `body.training` **之前**，否则两者特异度相同、后者会被盖掉，训练态会跟着页面主题一起变。
+`html[data-theme]` + 一组 token 覆盖；`boot()` 应用并在 `auto` 下监听系统变化；设置页加主题选择。训练态的取值全部声明在 `body.training` 上，对 `body` 及其后代永远优先于从 `html` 继承下来的深色 token；唯一要防的是纸纹那条**选择器带 `body`** 的规则——它必须写成 `body:not(.training)`，否则 (0,1,2) 会压过 `body.training` 的 (0,1,1)，训练页的 `background-image: none` 静默失效。
 
 **Files:**
 - Create: `focus-trainer/src/ui/theme.ts`
@@ -884,8 +1060,8 @@ Expected: 4 passed。
 ```css
 /* 深色主题：只覆盖页面 chrome 的九个 token，不碰 --stage 与训练态取值。
    别名 --bg/--panel/--line/--text/--muted/--accent 都在 :root 里以 var() 指向这些名字，
-   这里改名字本身即可跟着变。块必须在 body.training 之前：两者对 body 的特异度相同，
-   放后面会把训练态的 background-image: none 盖掉。 */
+   这里改名字本身即可跟着变；训练态的七个旧名都声明在 body.training 上，
+   对 body 及其后代永远优先于从 html 继承下来的值。 */
 html[data-theme='dark'] {
   color-scheme: dark;
   --paper: #15181c;
@@ -899,9 +1075,18 @@ html[data-theme='dark'] {
   --on-accent: #0b1a2e;
 }
 
-html[data-theme='dark'] body {
+/* 纸纹这条规则带 body，特异度 (0,1,2) 会压过 body.training 的 (0,1,1)：
+   必须排除 .training，训练页才能保住 background-image: none。 */
+html[data-theme='dark'] body:not(.training) {
   background-image: repeating-linear-gradient(to right, rgba(138, 180, 248, 0.05) 0 1px, transparent 1px 24px),
     repeating-linear-gradient(to bottom, rgba(138, 180, 248, 0.05) 0 1px, transparent 1px 24px);
+}
+
+/* --bad 在深色调亮成 #f28b82（danger 文字对卡面才够 4.5:1）；
+   #banner 的白字压在亮红上只剩约 2.5:1，横幅单独换深红底。 */
+html[data-theme='dark'] #banner {
+  background: #7a2e26;
+  color: #fbfbf8;
 }
 ```
 
@@ -933,11 +1118,16 @@ describe('深色主题', () => {
     expect(ratio('#0b1a2e', '#8ab4f8')).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('深色块在 body.training 之前（训练态必须继续赢）', () => {
-    const darkAt = cssStripped.indexOf("html[data-theme='dark']");
-    const trainingAt = cssStripped.indexOf('body.training');
-    expect(darkAt).toBeGreaterThan(0);
-    expect(trainingAt).toBeGreaterThan(darkAt);
+  it('深色纸纹只落在非训练页（训练态必须保住 background-image: none）', () => {
+    expect(decl("html[data-theme='dark'] body:not(.training)", 'background-image')).toContain('repeating-linear-gradient');
+    // 负向护栏：写成 html[data-theme='dark'] body 时，body.training 自己的 background-image: none
+    // 声明还在（styles.test.ts:198 照样绿），但训练页实际会被纸纹盖掉，而真机才会看见。
+    expect(cssStripped).not.toMatch(/html\[data-theme='dark'\]\s+body\s*\{/);
+  });
+
+  it('深色横幅换深红底，白字仍 ≥4.5:1（--bad 调亮后不能直接当横幅底色）', () => {
+    expect(decl("html[data-theme='dark'] #banner", 'background')).toBe('#7a2e26');
+    expect(ratio('#fbfbf8', '#7a2e26')).toBeGreaterThanOrEqual(4.5);
   });
 });
 ```
@@ -970,17 +1160,17 @@ import { applyTheme } from './ui/theme';
     getElementById: (id: string): StubEl | null => byId[id] ?? null,
 ```
 
-返回值（`:345-369`）加 `documentElement: doc.documentElement,`。
+`doc` 本来就原样放在 harness 的返回值里（`:350`），断言走 `h.doc.documentElement` 即可，不用新增返回字段。
 
 在「IndexedDB 正常打开时顶部提示保持隐藏」那条用例里加一条断言（`auto` + 桩里没有 matchMedia ⇒ 浅色）：
 
 ```ts
-    expect(h.documentElement.dataset.theme).toBe('light');
+    expect(h.doc.documentElement.dataset.theme).toBe('light');
 ```
 
 - [ ] **Step 8: 设置页加主题下拉**
 
-`src/ui/pages/settings.ts` 顶部导入 `ThemeMode` 与 `applyTheme`：
+`src/ui/pages/settings.ts` 顶部：把 Task 3 加的那行类型导入换成同时取 `ThemeMode`，并加 `applyTheme`：
 
 ```ts
 import type { Settings, ThemeMode } from '../../core/types';
@@ -1020,7 +1210,7 @@ const THEMES: ReadonlyArray<readonly [ThemeMode, string]> = [
   applyTheme(document.documentElement, settings.theme);
 ```
 
-`view.replaceChildren(...)` 里，在每日分界时间卡片后插入：
+`view.replaceChildren(...)` 里，把主题卡片插在每日分界时间卡片之后、震动卡片之前：
 
 ```ts
     h('div', { class: 'card' }, h('span', null, '主题'), h('span', { class: 'spacer' }), themeSelect),
@@ -1035,7 +1225,7 @@ const THEMES: ReadonlyArray<readonly [ThemeMode, string]> = [
 - [ ] **Step 9: 跑门槛**
 
 Run: `npx tsc --noEmit && npx vitest run`
-Expected: 全绿；新用例 = 4 个 theme + 3 个 styles。
+Expected: 全绿；新用例 = 4 个 theme + 4 个 styles。
 
 - [ ] **Step 10: 提交**
 
@@ -1217,7 +1407,7 @@ export interface RepoDump {
 
 - [ ] **Step 4: 给两个假 `Repository` 补方法**
 
-`src/main.test.ts:442` 起的 `idbRepo` 对象里加：
+`src/main.test.ts:442` 起的 `idbRepo` 对象里加（顺手把 `:440` 注释里的「12 个方法」改成「14 个方法」）：
 
 ```ts
       dumpAll: () => backing.dumpAll(),
@@ -1716,9 +1906,9 @@ Expected: 全绿。把 `Test Files` / `Tests` 两个实际数字写进 SDD 台�
 启动与判定口径照长期文档：`npm run dev`，在 `http://127.0.0.1:5173` 建 390×844 同源 iframe，`requestAnimationFrame` 换成自控队列、逻辑时钟每帧 +16ms、点击 `timeStamp` 与逻辑时刻对齐。逐项记录「实测原文」：
 
 1. **按压驻留**：在舒尔特第一格按下，立即读 `classList` 含 `is-pressed`；90ms 逻辑时钟后读一次，必须已摘掉。五个游戏各抽一格重复一次。
-2. **反馈上升沿**：注入一个 `window.__fx` 探针（在验收脚本里用 `evaluate_script` 包装 `createFx` 不可行时，改读 DOM 状态类）——最低要求是确认每个游戏答对/答错后 `.right/.wrong/.done/.flash/.hit/.missed` 等状态类**只出现一次**、下一试次才变化；震动/声音在桌面 Chrome 无法证明，明确标注「交真机」。
+2. **反馈上升沿**：不注入探针，直接读 DOM——每个游戏答对/答错后，`.right/.wrong/.done/.flash/.hit/.missed` 等状态类只在该试次出现，下一试次开始前不回弹、不重复触发（「只触发一次」已由视图单测逐款钉住，这里验的是真 DOM 路径）。震动/声音在桌面 Chrome 无法证明，明确标注「交真机」。
 3. **五个游戏整场闭环**：按 M4 验收记录 §14 的做法，每款从说明页 → 倒计时 → 3 轮 → 结算页走完，结算页文本有本轮读数。
-4. **深色主题**：设置页切「深色」→ `document.documentElement.dataset.theme === 'dark'`；依次打开 今日/库/趋势/设置 四页与五款训练页，读 `getComputedStyle(document.body).backgroundColor`（应为 `rgb(21, 24, 28)`）与 `getComputedStyle(document.body).color`（应为 `rgb(230, 232, 234)`）；训练页底色仍为舞台色（`--stage #10151a`），页签隐藏。切回「跟随系统」后 `data-theme` 随系统媒体查询变化（可用 CDP 的 `Emulation.setEmulatedMedia` 或直接改 `matchMedia` 不可行时，至少验证 `light`/`dark` 两档与 `auto` 的解析单测承接）。
+4. **深色主题**：设置页切「深色」→ `document.documentElement.dataset.theme === 'dark'`；依次打开 今日/库/趋势/设置 四页与五款训练页，读 `getComputedStyle(document.body).backgroundColor`（应为 `rgb(21, 24, 28)`）与 `getComputedStyle(document.body).color`（应为 `rgb(230, 232, 234)`）；训练页底色仍为舞台色（`--stage #10151a`），页签隐藏。再切「浅色」→ `dataset.theme === 'light'`，底色回到 `rgb(238, 240, 234)`。`auto` 档的解析（含无 `matchMedia` 兜底）由 `theme.test.ts` 单测承接，浏览器这里只认 light/dark 两档的实际落值。
 5. **备份往返（真 IndexedDB）**：先在当前库导出 → 文本框内容以 `{"app":"focus-trainer"` 开头；点「清空数据」后再导入同一段文本 → 今日计划、档位、sessions 行数与导出前一致（用一次 `evaluate_script` 只读库，另一次只写，遵守「一次调用只做一件事」的通道纪律）。
 6. **坏数据拒绝**：粘贴 `{"app":"x"}` → 提示「不是本应用的备份」，库不变。
 7. **无回归**：首页打卡、趋势页三块图、返回键确认、页签四页切换各点一次。
@@ -1744,11 +1934,18 @@ Expected: `共 14 项，失败 0 项。`；记录新包的字节数与 mtime。
 - [ ] **Step 4: 包内正身判据（`unzip -p`，不用磁盘 `assets/public`）**
 
 ```bash
-unzip -p android/app/build/outputs/apk/debug/app-debug.apk assets/public/index.html | grep -o 'data-theme[^ ]*' | head
-unzip -p android/app/build/outputs/apk/debug/app-debug.apk assets/public/index.html | grep -c '#tabbar'
+APK=android/app/build/outputs/apk/debug/app-debug.apk
+unzip -Z1 "$APK" | grep '^assets/public/assets/'
+JS=$(unzip -Z1 "$APK" | grep -E '^assets/public/assets/index-.*\.js$' | head -1)
+unzip -p "$APK" "$JS" | grep -c 'is-pressed'
+unzip -p "$APK" "$JS" | grep -c 'backup-text'
+unzip -p "$APK" "$JS" | grep -c '震动反馈'
+unzip -p "$APK" "$JS" | grep -c '答对一格只 hit 一次' || true   # 负控：必须 0
 ```
 
-再按 §13 的「新鲜度复检」重建 `dist` 并逐条目比对 MD5（`index.html` 比较前先 CR 剥离）；主 chunk 里对新增字符串做正控/负控各一次（正控：`backup-text` 或 `is-pressed`；负控：只在 `*.test.ts` 里出现的用例标题命中 0 次）。
+（`index.html` 里没有新增字面量：`data-theme` 由 `theme.ts` 在运行时写进 `<html>`，`#tabbar` 更是从来不在源码里带 `#`。新代码只在 JS chunk 里，所以正控/负控都打在 chunk 上。）
+
+再按 §13 的「新鲜度复检」重建 `dist` 并逐条目比对 MD5（`index.html` 比较前先 CR 剥离）；主 chunk 的正控用上面 `is-pressed`/`backup-text` 的命中数，负控用只在 `*.test.ts` 里出现的用例标题（命中 0 次）。
 
 - [ ] **Step 5: 同步三份文档**
 
@@ -1776,7 +1973,7 @@ git commit -m "docs(m4): 记录反馈/备份/深色主题的验收与新包身�
 - [ ] `is-pressed` 至少驻留 90ms（press 测试钉住），`prefers-reduced-motion` 下只保留变色。
 - [ ] `Settings` 旧库缺字段时按 `DEFAULT_SETTINGS` 补齐（storage 测试两种实现各跑一遍）。
 - [ ] 备份导出/解析/合并/幂等/坏数据拒绝五条逻辑测试全绿；真库导入导出在浏览器实测。
-- [ ] 深色 token 九项 + 六组对比度 ≥ 4.5:1 + 层叠顺序（深色块在 `body.training` 之前）三条护栏绿。
+- [ ] 深色 token 九项 + 六组对比度 ≥ 4.5:1 + 纸纹只落在 `body:not(.training)` + 横幅深红底白字，四条护栏绿。
 - [ ] `npm run build`（不是 `vite build`）通过；`npm run verify:apk` 14 项、失败 0。
 - [ ] 新 APK 晚于最后一次非测试 `src/` 提交；包内 `index.html`/chunk 与重建 `dist` 的 MD5 全等。
 - [ ] README / 验收记录 §13 / 真机手册的包身份三处数字一致。

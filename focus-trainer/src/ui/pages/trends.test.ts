@@ -157,6 +157,8 @@ function makeRepo(sessions: SessionRecord[], plans: DayPlan[], states: GameState
     putPlan: boom('putPlan') as Repository['putPlan'],
     saveSession: boom('saveSession') as Repository['saveSession'],
     putSettings: boom('putSettings') as Repository['putSettings'],
+    dumpAll: boom('dumpAll') as Repository['dumpAll'],
+    loadAll: boom('loadAll') as Repository['loadAll'],
     clearAll: boom('clearAll') as Repository['clearAll'],
   };
   return { repo, calls };

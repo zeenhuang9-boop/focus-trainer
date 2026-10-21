@@ -1,6 +1,13 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, MemoryRepository, defaultGameState, openIdbRepository, type Repository } from './storage';
+import {
+  DEFAULT_SETTINGS,
+  MemoryRepository,
+  defaultGameState,
+  openIdbRepository,
+  type RepoDump,
+  type Repository,
+} from './storage';
 import type { DayPlan, GameId, GameState, SessionRecord, Settings } from './types';
 
 let dbSeq = 0;
@@ -140,6 +147,49 @@ describe.each(impls)('$name repository', ({ make }) => {
     st1.level = 9;
     expect((await repo.lastSession('schulte'))?.ability).not.toBe(999);
     expect((await repo.getGameState('schulte')).level).toBe(3);
+  });
+
+  it('dumpAll 返回四类数据的副本', async () => {
+    await repo.saveSession(rec('schulte', 100), state('schulte', 3), dayPlan('2026-10-18', ['schulte']));
+    await repo.putSettings({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
+    const dump = await repo.dumpAll();
+    expect(dump.sessions).toHaveLength(1);
+    expect(dump.gameStates).toEqual([state('schulte', 3)]);
+    expect(dump.plans).toEqual([dayPlan('2026-10-18', ['schulte'])]);
+    expect(dump.settings).toEqual({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
+    dump.sessions[0].ability = 999;
+    expect((await repo.lastSession('schulte'))?.ability).not.toBe(999);
+  });
+
+  it('loadAll 整体替换四类数据，自增 id 接在导入的最大 id 之后', async () => {
+    await repo.saveSession(rec('schulte', 1), state('schulte'), null);
+    const imported: RepoDump = {
+      sessions: [{ ...rec('stroop', 500), id: 7 }],
+      gameStates: [state('stroop', 4)],
+      plans: [dayPlan('2026-10-20', ['stroop'])],
+      settings: { ...DEFAULT_SETTINGS, theme: 'dark' },
+    };
+    await repo.loadAll(imported);
+    expect(await repo.listSessions()).toEqual([{ ...rec('stroop', 500), id: 7 }]);
+    expect(await repo.getGameState('schulte')).toEqual(defaultGameState('schulte'));
+    expect(await repo.getPlan('2026-10-20')).toEqual(dayPlan('2026-10-20', ['stroop']));
+    expect(await repo.getSettings()).toEqual({ ...DEFAULT_SETTINGS, theme: 'dark' });
+    const newId = await repo.saveSession(rec('mot', 900), state('mot'), null);
+    expect(newId).toBe(8);
+  });
+
+  it('loadAll 里重复的 session id 整体失败，不留半份数据', async () => {
+    const dup: RepoDump = {
+      sessions: [
+        { ...rec('schulte', 1), id: 1 },
+        { ...rec('mot', 2), id: 1 },
+      ],
+      gameStates: [],
+      plans: [],
+      settings: { ...DEFAULT_SETTINGS },
+    };
+    await expect(repo.loadAll(dup)).rejects.toThrow();
+    expect(await repo.listSessions()).toEqual([]);
   });
 
   it('clearAll 清空全部数据', async () => {

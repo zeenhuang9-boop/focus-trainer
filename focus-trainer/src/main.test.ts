@@ -438,7 +438,7 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
   it('IndexedDB 正常打开时顶部提示保持隐藏，页面拿到的是 idb 仓库', async () => {
     const h = setupDom();
     const storage = await freshStorage();
-    // 假 idb 仓库：12 个方法逐一转发给一个真 MemoryRepository，本身只用来做对象同一性判定
+    // 假 idb 仓库：14 个方法逐一转发给一个真 MemoryRepository，本身只用来做对象同一性判定
     const backing = new storage.MemoryRepository();
     const idbRepo: Repository = {
       getGameState: (g) => backing.getGameState(g),
@@ -452,6 +452,8 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
       saveSession: (r, s, p) => backing.saveSession(r, s, p),
       getSettings: () => backing.getSettings(),
       putSettings: (s) => backing.putSettings(s),
+      dumpAll: () => backing.dumpAll(),
+      loadAll: (d) => backing.loadAll(d),
       clearAll: () => backing.clearAll(),
     };
     recorder.openIdbRepository.mockResolvedValue(idbRepo);

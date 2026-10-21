@@ -7,6 +7,13 @@ export function defaultGameState(gameId: GameId): GameState {
   return { gameId, ...INITIAL_ADAPTIVE, lastPlayedDayKey: null };
 }
 
+export interface RepoDump {
+  sessions: SessionRecord[];
+  gameStates: GameState[];
+  plans: DayPlan[];
+  settings: Settings;
+}
+
 export interface Repository {
   getGameState(gameId: GameId): Promise<GameState>;
   listGameStates(): Promise<GameState[]>;
@@ -19,6 +26,8 @@ export interface Repository {
   saveSession(rec: SessionRecord, state: GameState, plan: DayPlan | null): Promise<number>;
   getSettings(): Promise<Settings>;
   putSettings(settings: Settings): Promise<void>;
+  dumpAll(): Promise<RepoDump>;
+  loadAll(data: RepoDump): Promise<void>;
   clearAll(): Promise<void>;
 }
 
@@ -97,6 +106,30 @@ export class MemoryRepository implements Repository {
 
   async putSettings(settings: Settings): Promise<void> {
     this.settings = { ...settings };
+  }
+
+  async dumpAll(): Promise<RepoDump> {
+    return {
+      sessions: await this.listSessions(),
+      gameStates: await this.listGameStates(),
+      plans: await this.listPlans(),
+      settings: await this.getSettings(),
+    };
+  }
+
+  async loadAll(data: RepoDump): Promise<void> {
+    const ids = new Set<number>();
+    for (const s of data.sessions) {
+      if (s.id === undefined) throw new TypeError('loadAll 的 session 缺 id');
+      if (ids.has(s.id)) throw new TypeError(`loadAll 的 session id 重复：${s.id}`);
+      ids.add(s.id);
+    }
+    // 先全部校验再落库：内存实现没有事务回滚，半份数据比抛错更难查。
+    this.sessions = data.sessions.map((s) => structuredClone(s));
+    this.states = new Map(data.gameStates.map((g) => [g.gameId, structuredClone(g)]));
+    this.plans = new Map(data.plans.map((p) => [p.dayKey, structuredClone(p)]));
+    this.settings = { ...DEFAULT_SETTINGS, ...data.settings };
+    this.nextId = this.sessions.reduce((m, s) => Math.max(m, s.id ?? 0), 0) + 1;
   }
 
   async clearAll(): Promise<void> {
@@ -213,6 +246,43 @@ class IdbRepository implements Repository {
     const tx = this.db.transaction('settings', 'readwrite');
     const done = txDone(tx);
     tx.objectStore('settings').put({ key: SETTINGS_KEY, ...settings });
+    await done;
+  }
+
+  async dumpAll(): Promise<RepoDump> {
+    const [sessions, gameStates, plans, settings] = await Promise.all([
+      this.listSessions(),
+      this.listGameStates(),
+      this.listPlans(),
+      this.getSettings(),
+    ]);
+    return { sessions, gameStates, plans, settings };
+  }
+
+  async loadAll(data: RepoDump): Promise<void> {
+    const tx = this.db.transaction(ALL_STORES, 'readwrite');
+    const done = txDone(tx);
+    try {
+      const sessions = tx.objectStore('sessions');
+      const states = tx.objectStore('gameState');
+      const plans = tx.objectStore('plans');
+      const settings = tx.objectStore('settings');
+      sessions.clear();
+      states.clear();
+      plans.clear();
+      settings.clear();
+      for (const s of data.sessions) {
+        if (s.id === undefined) throw new TypeError('loadAll 的 session 缺 id');
+        sessions.add(s);
+      }
+      for (const g of data.gameStates) states.put(g);
+      for (const p of data.plans) plans.put(p);
+      settings.put({ key: SETTINGS_KEY, ...DEFAULT_SETTINGS, ...data.settings });
+    } catch (err) {
+      tx.abort();
+      await done.catch(() => undefined);
+      throw err;
+    }
     await done;
   }
 

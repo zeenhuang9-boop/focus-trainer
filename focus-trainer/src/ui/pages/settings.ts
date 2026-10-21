@@ -70,7 +70,7 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
   const backupNote = h(
     'p',
     { class: 'muted', 'aria-live': 'polite' },
-    '备份包含全部训练记录、档位、计划和设置。合并导入会追加到现有记录；覆盖导入会用备份整体替换本机数据。',
+    '备份包含全部训练记录、档位、计划和设置。合并导入会追加训练记录，并保留同日计划里打卡更完整的一份（一样完整时保留本机）；覆盖导入会用备份整体替换本机数据。',
   );
   const backupText = h('textarea', { class: 'backup-text', readonly: true, 'aria-label': '备份内容', rows: 6 });
   const pasteText = h('textarea', {
@@ -98,6 +98,8 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
   }
 
   async function doExport(): Promise<void> {
+    // 先清空：导出失败时不能把上一份有效备份留在只读框里，让人误当成当前数据复制走。
+    backupText.value = '';
     let text: string;
     try {
       text = JSON.stringify(await createBackup(ctx.repo, Date.now()), null, 2);
@@ -119,39 +121,56 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
     }
   }
 
+  // 导入是「读全库 → 纯计算 → 整库写回」：两个导入交错会把前一个的结果覆盖掉。
+  // 一个 in-flight 标志贯穿整个异步过程，期间四个备份按钮都禁用（finally 里一定复位）。
+  let backupBusy = false;
+
+  function setBackupBusy(busy: boolean): void {
+    backupBusy = busy;
+    for (const button of [exportBtn, importFileBtn, mergeImportBtn, overwriteImportBtn]) {
+      button.disabled = busy;
+    }
+  }
+
   async function doImport(text: string, mode: 'merge' | 'overwrite'): Promise<void> {
-    if (!text.trim()) {
-      backupNote.textContent = '没有可导入的内容。';
-      return;
-    }
-    let data: BackupData;
+    if (backupBusy) return;
+    setBackupBusy(true);
     try {
-      // 先校验再确认：坏 JSON 不该弹出合并/覆盖确认框。
-      data = parseBackup(text);
-    } catch (err) {
-      backupNote.textContent = `导入失败：${errorText(err)}`;
-      return;
-    }
-    const question =
-      mode === 'overwrite'
-        ? '覆盖导入会用备份整体替换本机全部训练记录、档位、计划和设置，且不能撤销。继续？'
-        : '导入会合并到现有记录，继续？';
-    if (!confirm(question)) return;
-    try {
-      const summary =
+      if (!text.trim()) {
+        backupNote.textContent = '没有可导入的内容。';
+        return;
+      }
+      let data: BackupData;
+      try {
+        // 先校验再确认：坏 JSON 不该弹出合并/覆盖确认框。
+        data = parseBackup(text);
+      } catch (err) {
+        backupNote.textContent = `导入失败：${errorText(err)}`;
+        return;
+      }
+      const question =
         mode === 'overwrite'
-          ? await importBackup(ctx.repo, data, 'overwrite')
-          : await importBackup(ctx.repo, data);
-      ctx.settings = await ctx.repo.getSettings();
-      applyTheme(document.documentElement, ctx.settings.theme);
-      syncSettingsControls();
-      pasteText.value = '';
-      backupNote.textContent =
-        mode === 'overwrite'
-          ? `覆盖导入完成：${summary.addedSessions} 次训练、${summary.mergedStates} 条档位、${summary.mergedPlans} 天计划已替换本机数据。`
-          : `导入完成：新增 ${summary.addedSessions} 次训练，合并 ${summary.mergedStates} 条档位、${summary.mergedPlans} 天计划。`;
-    } catch (err) {
-      backupNote.textContent = `导入失败：${errorText(err)}`;
+          ? '覆盖导入会用备份整体替换本机全部训练记录、档位、计划和设置，且不能撤销。继续？'
+          : '导入会合并到现有记录，继续？';
+      if (!confirm(question)) return;
+      try {
+        const summary =
+          mode === 'overwrite'
+            ? await importBackup(ctx.repo, data, 'overwrite')
+            : await importBackup(ctx.repo, data);
+        ctx.settings = await ctx.repo.getSettings();
+        applyTheme(document.documentElement, ctx.settings.theme);
+        syncSettingsControls();
+        pasteText.value = '';
+        backupNote.textContent =
+          mode === 'overwrite'
+            ? `覆盖导入完成：${summary.addedSessions} 次训练、${summary.mergedStates} 条档位、${summary.mergedPlans} 天计划已替换本机数据。`
+            : `导入完成：新增 ${summary.addedSessions} 次训练，合并 ${summary.mergedStates} 条档位、${summary.mergedPlans} 天计划。`;
+      } catch (err) {
+        backupNote.textContent = `导入失败：${errorText(err)}`;
+      }
+    } finally {
+      setBackupBusy(false);
     }
   }
 

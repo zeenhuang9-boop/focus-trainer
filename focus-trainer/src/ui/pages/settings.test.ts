@@ -456,6 +456,75 @@ describe('renderSettings 的备份区', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
+  it('导出失败会清掉上一次的旧备份文本，不留下可误复制的旧数据', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const h = await setup();
+    await h.render();
+
+    h.button('导出备份').fire('click');
+    await vi.waitFor(() => expect(h.backupNote().textContent).toContain('已复制'));
+    expect(h.backupText().value).toContain('"format"');
+
+    const stale = h.backupText().value;
+    h.repo.dumpAll = async () => {
+      throw new Error('数据库读取失败');
+    };
+    h.button('导出备份').fire('click');
+
+    await vi.waitFor(() => expect(h.backupNote().textContent).toContain('导出失败'));
+    // 旧文本必须当场清空：失败后用户还能长按复制只读框，留着旧数据与失败提示同样危险。
+    expect(h.backupText().value).toBe('');
+    expect(h.backupText().value).not.toBe(stale);
+  });
+
+  it('导入进行中禁用备份按钮，连点两次只跑一次导入', async () => {
+    const h = await setup();
+    await h.render();
+    h.pasteText().value = await backupJson(async (repo) => {
+      await repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
+    });
+    h.setConfirm(true);
+
+    // 拦住导入内部的 dumpAll：第一次点击停在这里，第二次点击必须被 in-flight 守卫挡掉。
+    const original = h.repo.dumpAll.bind(h.repo);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const dumpAll = vi.fn(async () => {
+      await gate;
+      return original();
+    });
+    h.repo.dumpAll = dumpAll;
+
+    const merge = h.button('合并导入');
+    merge.fire('click');
+    merge.fire('click');
+
+    expect(dumpAll).toHaveBeenCalledTimes(1);
+    expect(h.confirmMock).toHaveBeenCalledTimes(1);
+    expect(merge.disabled).toBe(true);
+    expect(h.button('覆盖导入').disabled).toBe(true);
+    expect(h.button('选择备份文件').disabled).toBe(true);
+    expect(h.button('导出备份').disabled).toBe(true);
+
+    release();
+    await vi.waitFor(() => expect(h.backupNote().textContent).toContain('导入完成'));
+    expect(merge.disabled).toBe(false);
+    expect(h.button('覆盖导入').disabled).toBe(false);
+    expect((await h.repo.listSessions()).map((s) => [s.gameId, s.startedAt])).toEqual([['schulte', 100]]);
+  });
+
+  it('合并说明写明追加训练记录并保留同日打卡更完整的一份', async () => {
+    const h = await setup();
+    await h.render();
+    const copy = h.backupNote().textContent;
+    expect(copy).toContain('追加训练记录');
+    expect(copy).toContain('打卡更完整');
+    expect(copy).toContain('一样完整时保留本机');
+  });
+
   it('覆盖导入按钮带 danger 类；剪贴板不可用时导出只提示长按复制', async () => {
     // README/WebView 里 navigator.clipboard 可能整个不存在：不能误报已复制。
     vi.stubGlobal('navigator', { clipboard: undefined });

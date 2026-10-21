@@ -19,6 +19,8 @@
   --done: #3f6b4a;
   --bad: #a83c2b;
   --stage: #10151a;
+  --chart-area: rgba(28, 79, 124, 0.14);
+  --chart-partial: #3d4a63;
   --bg: var(--stage);
   --panel: var(--card);
   --line: var(--rule);
@@ -51,6 +53,8 @@ html[data-theme='dark'] {
   --done: #6fbf8a;
   --bad: #f28b82;
   --on-accent: #0b1a2e;
+  --chart-area: rgba(138, 180, 248, 0.16);
+  --chart-partial: #6b7a90;
 }
 
 /* 纸纹这条规则带 body，特异度 (0,1,2) 会压过 body.training 的 (0,1,1)：
@@ -723,7 +727,7 @@ label.card {
 }
 
 .radar-area {
-  fill: rgba(28, 79, 124, 0.14);
+  fill: var(--chart-area);
   stroke: var(--accent);
   stroke-width: 2;
 }
@@ -774,7 +778,7 @@ label.card {
 }
 
 .calendar-cell.partial {
-  fill: #3d4a63;
+  fill: var(--chart-partial);
 }
 
 .calendar-cell.done {

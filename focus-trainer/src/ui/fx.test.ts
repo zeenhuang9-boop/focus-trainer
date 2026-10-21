@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFx } from './fx';
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 function env() {
   return { vibrate: vi.fn(), tone: vi.fn() };
 }
@@ -53,6 +57,23 @@ describe('createFx', () => {
       fx.hit();
       fx.miss();
     }).not.toThrow();
+  });
+
+  it('默认 vibrate 实现抛错时 tap 不抛，评分路径不会被反馈带断', () => {
+    vi.stubGlobal('navigator', {
+      vibrate: () => {
+        throw new Error('vibrate blocked');
+      },
+    });
+    const fx = createFx({ hapticsEnabled: true, soundEnabled: false });
+    let after = false;
+    expect(() => {
+      fx.tap();
+      after = true;
+    }).not.toThrow();
+    expect(after).toBe(true);
+    expect(() => fx.hit()).not.toThrow();
+    expect(() => fx.miss()).not.toThrow();
   });
 });
 

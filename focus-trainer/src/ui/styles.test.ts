@@ -123,7 +123,7 @@ describe('趋势页样式与离线红线', () => {
     expect(css).toMatch(/\.trend-radar svg,\s*\.trend-curve svg,\s*\.trend-calendar svg\s*\{[^}]*width:\s*100%[^}]*height:\s*auto/);
     expect(decl('.calendar-cell.done', 'fill')).toBe('var(--accent)');
     expect(decl('.calendar-cell.none', 'fill')).toBe('var(--panel)');
-    expect(decl('.calendar-cell.partial', 'fill')).toBe('#3d4a63');
+    expect(decl('.calendar-cell.partial', 'fill')).toBe('var(--chart-partial)');
     // Task 2 报告标为「必需」的一条：末点标签 x=312 若按默认 start 锚定会溢出 320 的 viewBox，
     // 桩测只断 fullText，测不到，所以必须由 CSS 文本判据钉住。
     expect(decl('.curve-edge.edge-end', 'text-anchor')).toBe('end');
@@ -427,5 +427,25 @@ describe('深色主题', () => {
   it('深色横幅换深红底，白字仍 ≥4.5:1（--bad 调亮后不能直接当横幅底色）', () => {
     expect(decl("html[data-theme='dark'] #banner", 'background')).toBe('#7a2e26');
     expect(ratio('#fbfbf8', '#7a2e26')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('图表 token：浅色取值不变，radar/calendar 改用 token', () => {
+    expect(decl(':root', '--chart-area')).toBe('rgba(28, 79, 124, 0.14)');
+    expect(decl(':root', '--chart-partial')).toBe('#3d4a63');
+    expect(decl('.radar-area', 'fill')).toBe('var(--chart-area)');
+    expect(decl('.calendar-cell.partial', 'fill')).toBe('var(--chart-partial)');
+    // 浅色视觉值保持原样：partial 对浅卡面仍远高于 3:1。
+    expect(ratio('#3d4a63', '#fbfbf8')).toBeGreaterThanOrEqual(3);
+  });
+
+  it('深色图表 token：partial 日历格对深色卡面 ≥ 3:1', () => {
+    const darkPartial = decl("html[data-theme='dark']", '--chart-partial');
+    const darkCard = decl("html[data-theme='dark']", '--card');
+    expect(darkPartial).not.toBeNull();
+    expect(darkCard).not.toBeNull();
+    // 原硬编码的 #3d4a63 在深色卡面上只有 ~1.8:1，正是要修掉的缺陷。
+    expect(ratio('#3d4a63', '#1d2126')).toBeLessThan(3);
+    expect(ratio(darkPartial ?? '', darkCard ?? '')).toBeGreaterThanOrEqual(3);
+    expect(decl("html[data-theme='dark']", '--chart-area')).toMatch(/^rgba\(/);
   });
 });

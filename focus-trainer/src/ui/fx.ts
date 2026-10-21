@@ -28,7 +28,12 @@ function defaultEnv(): FxEnv {
   return {
     vibrate(ms) {
       const nav = (globalThis as { navigator?: { vibrate?: (n: number | number[]) => boolean } }).navigator;
-      nav?.vibrate?.(ms);
+      try {
+        // tap() 在 runner.input() 之前调用：震动实现抛错不能把这一枪的判分带断。
+        nav?.vibrate?.(ms);
+      } catch {
+        // 吞掉：反馈失败不影响游戏。
+      }
     },
     tone(freq, ms) {
       // 反馈是锦上添花：构造、resume、发声任何一步失败都只让这一声不响。

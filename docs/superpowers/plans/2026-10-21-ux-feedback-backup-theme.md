@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-18-focus-trainer-design.md`（成功标准 1/3/4 的离线、续档、数据面约束继续有效）。本次三项优化的口径来自用户 2026-10-21 的确认：最短按压驻留 **90ms**；**震动开、声音默认关**；只加**深色主题**（不做其它外观改造）；备份用**剪贴板 + 文件导入**。计划本身把这几条落成可执行的验收判据。
 
+**Spec 存档说明（终审 M10）：** 本轮聊天里的五节设计没有另存独立 spec 文件；本计划的 A1–A8 与 Global Constraints 就是该设计的落地口径，验收以本文件与 `docs/superpowers/plans/2026-10-20-m4-acceptance.md` §13 为准。
+
 ## Global Constraints
 
 每一片都必须同时满足，违反任一条就是返工：

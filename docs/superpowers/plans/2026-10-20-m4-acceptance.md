@@ -286,6 +286,17 @@ APK 内含「舒尔特方格」「视觉完型整合」           ->  各 1 次�
 - **交真机的残余**：震动是否真的触发（权限已在包内）、声音开关真机听感、剪贴板真实写入与文件选择器、原生 `confirm` 弹窗、深色下刘海 / 手势条观感、标准 1 的「装进手机」。手册 §12 已给出对应步骤。
 - **归属**：第 1/2/4/5/6/7 条的 DOM、存储与路由结论为**浏览器实测（合成事件 / 真 IndexedDB）**；第 1 条的 90ms 下界、合并语义、主题解析与对比度为**单测承接**；震动、声音、剪贴板、文件选择器、原生弹窗与深色观感为**交真机**。
 
+**2026-10-21 评审修复轮（HEAD `fbdd358`；包身份与门槛以此段为准，上方 `c2b91b4` / `17:20:31` 那份为上一轮）**
+
+- **来源**：整分支终审（`141eb4f..db88f6f`，14 commits，报告 `final-review.md`）判 **With fixes**：0 Critical / 2 Important（I1 深色冷启动首屏闪白、I2 导入只验形状不验语义）/ 10 Minor。修复批 `0d05ea1`（I1）、`247a622`（I2）、`fbdd358`（M2–M7）；复审 `re-review.md`：代码发现全部 Fixed、无新增 Critical/Important，唯一 Important 是包与文档仍停在修复前 —— 本节即其收口。
+- **门槛**：`npx tsc --noEmit` exit 0；`npx vitest run` = **49 文件 / 619 用例全绿**（上一轮 48/591；新增 1 个测试文件、28 条用例）。
+- **新包身份**：**4,163,083 B @ 2026-10-21 18:14:24**（上一轮 4,162,083 B @ 17:20:31，+1,000 B；体积不是完整性信号，见 §12）。修复动了非测试 `src/` 与 `index.html`，按口径先 `rm -f` 旧包再 `assembleDebug --no-daemon`（`BUILD SUCCESSFUL in 29s`）；`npm run verify:apk` = **共 14 项，失败 0 项**。
+- **正身判据**（`unzip -p` 从包内取；`dist` 在最终 HEAD `fbdd358` 上用 `npm run build` 当场重建）：三个 chunk **逐字节 MD5 全等** —— `assets/index-BLi6JVng.js` `b6be70a1b342de6c52343bee6ccffe37`、`assets/index-CTrDPgwk.css` `1d5b880d1530a0a952c411a577d5dee6`、`assets/web-DM2pGIkX.js` `fe7e468f761a550d74ac1846acfe470f`；`index.html` **两侧都剥 CR 后** `e3638d059b8a74242720ae75bb65eb79` 全等。正控：包内 `focus-trainer/theme` ×1（JS）+ ×1（HTML）、`is-pressed` ×4、`backup-text` ×2、`震动反馈` ×3；负控：测试标题 `同日计划 games 不同` 命中 **0**。
+- **冷启动主题（I1）的证据链**：① 包内 `index.html` 的 inline script（第 13 行读取 `focus-trainer/theme`）在 module script（第 26 行）之前；② 单测在仓库 promise 未决时断言 `<html data-theme="dark">` 已落地，settings 解析后由 `applyTheme` 接管；③ 复审把 inline script 抽出在隔离环境执行，dark / light / auto / 非法 / 抛异常五种输入的落点与 `theme.ts` 真值表一致。**视觉上的「不闪白」仍留真机 §12.3**；另 `capacitor.config.ts` 的原生启动底色未改（仍为浅色纸面），冷启动一瞬间可能看到原生窗口底色，这是已知残余、不是 WebView 主题缺陷。
+- **修复内容（逐条）**：I1 同步主题提示（`THEME_KEY` / `readThemeHint` / `applyThemeHint` + head inline script + `boot()` 首句，`theme-color` 一并更新）；I2 备份语义校验（计划重复 id、`completed ⊆ games`、`dayStartHour` 整数 0–23、档位整数 1–99、连胜非负整数）与 `play.ts` 档位钳制（只钳运行值，不重写存储）；M2 导出失败先清旧文本、M3 导入并发守卫、M4 `navigator.vibrate` 抛异常不阻断判分、M5 深色雷达 / 日历图表 token（部分格 ≥3:1）、M6 合并文案与测试名、M7 `fx.tap()` 接线测试。
+- **复审遗留（不阻断，已存档）**：M8 媒体监听测试不能区分 live / captured settings（生产行为经代码检查正确）；inline script 测试为字符串级（隔离执行由复审补证）；损坏 IDB 里的非法 theme 可能把 `theme-color` 写成 `undefined`（需外部篡改才能触发）；13–99 档可被手工备份导入，首页 / 库显示原始值而训练页钳制。以上均不改包。
+- **交真机的残余（新增）**：深色用户杀进程冷启动是否仍见浅色（WebView 层已消除，原生启动底色除外）；其余同上一轮。
+
 **本文件不构成标准 1 已关闭的宣告。**
 
 ---

@@ -50,7 +50,7 @@ focus-trainer/
 cd focus-trainer
 npm install
 npm run dev        # 开发服务器，默认 http://127.0.0.1:5173
-npm test           # 48 个测试文件 / 591 个用例
+npm test           # 49 个测试文件 / 619 个用例
 npm run typecheck  # tsc --noEmit
 npm run build      # tsc --noEmit && vite build
 ```
@@ -73,9 +73,9 @@ Windows（Git Bash）把最后一行换成 `cmd //c "gradlew.bat assembleDebug -
 
 ## 状态
 
-六条验收标准里 5 条已由可重跑的实测关闭，**仅剩「装进真机」一次**。当前门槛：`tsc --noEmit` 通过 + 48 文件 / 591 用例全绿。
+六条验收标准里 5 条已由可重跑的实测关闭，**仅剩「装进真机」一次**。当前门槛：`tsc --noEmit` 通过 + 49 文件 / 619 用例全绿。
 
-2026-10-21 的反馈 / 备份 / 深色主题轮已在浏览器与真实 IndexedDB 上验收通过，包已按最终 HEAD `c2b91b4` 重出（4,162,083 B · 2026-10-21 17:20:31 · `verify:apk` 14 项全过）。振动是否真的触发、声音听感、真实剪贴板与文件选择器、原生返回键弹窗、深色下刘海 / 手势条观感，留在真机手册。
+2026-10-21 的反馈 / 备份 / 深色主题轮已在浏览器与真实 IndexedDB 上验收通过；随后整分支评审修掉了深色冷启动首屏闪白与导入语义校验两项 Important，包已按最终 HEAD `fbdd358` 重出（4,163,083 B · 2026-10-21 18:14:24 · `verify:apk` 14 项全过）。振动是否真的触发、声音听感、真实剪贴板与文件选择器、原生返回键弹窗、深色下刘海 / 手势条观感、深色冷启动是否仍见浅色（WebView 层已消除，原生启动窗口底色未改），留在真机手册。
 
 - 验收记录（六条标准逐条证据）：[`docs/superpowers/plans/2026-10-20-m4-acceptance.md`](docs/superpowers/plans/2026-10-20-m4-acceptance.md)
 - 真机验收手册（可粘贴命令 + 期望结果）：[`docs/superpowers/plans/2026-10-20-m4-realdevice-runbook.md`](docs/superpowers/plans/2026-10-20-m4-realdevice-runbook.md)

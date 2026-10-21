@@ -192,6 +192,30 @@ describe.each(impls)('$name repository', ({ make }) => {
     expect(await repo.listSessions()).toEqual([]);
   });
 
+  it('loadAll 拒绝缺 gameId 的档位与缺 dayKey 的计划，库内旧数据原样保留', async () => {
+    await repo.saveSession(rec('schulte', 100), state('schulte', 3), dayPlan('2026-10-18', ['schulte']));
+    await repo.putSettings({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
+    const before = await repo.dumpAll();
+
+    const badState: RepoDump = {
+      sessions: [],
+      gameStates: [{ level: 2, passStreak: 0, failStreak: 0, lastPlayedDayKey: null } as unknown as GameState],
+      plans: [],
+      settings: { ...DEFAULT_SETTINGS },
+    };
+    await expect(repo.loadAll(badState)).rejects.toThrow();
+    expect(await repo.dumpAll()).toEqual(before);
+
+    const badPlan: RepoDump = {
+      sessions: [],
+      gameStates: [],
+      plans: [{ games: ['schulte'], completed: [] } as unknown as DayPlan],
+      settings: { ...DEFAULT_SETTINGS },
+    };
+    await expect(repo.loadAll(badPlan)).rejects.toThrow();
+    expect(await repo.dumpAll()).toEqual(before);
+  });
+
   it('clearAll 清空全部数据', async () => {
     await repo.saveSession(rec('schulte', 100), state('schulte', 3), dayPlan('2026-10-18'));
     await repo.putSettings({ ...DEFAULT_SETTINGS, dayStartHour: 0 });

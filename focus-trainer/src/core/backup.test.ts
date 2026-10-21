@@ -74,6 +74,25 @@ describe('备份导出与导入', () => {
     expect(await target.getSettings()).toEqual({ ...DEFAULT_SETTINGS, theme: 'dark' });
   });
 
+  it('createBackup 的原始 JSON 同时含 format 与 app 标记', async () => {
+    const text = await roundTrip(new MemoryRepository());
+    expect(text).toContain('"format":"focus-trainer/backup"');
+    expect(text).toContain('"app":"focus-trainer"');
+    expect(JSON.parse(text)).toMatchObject({ format: BACKUP_FORMAT, app: BACKUP_APP });
+  });
+
+  it('空备份导入返回全 0，本地设置保持不变', async () => {
+    const target = new MemoryRepository();
+    await target.putSettings({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
+
+    const s = await importBackup(target, parseBackup(rawBackup()));
+    expect(s).toEqual({ addedSessions: 0, mergedStates: 0, mergedPlans: 0 });
+    expect(await target.listSessions()).toEqual([]);
+    expect(await target.listGameStates()).toEqual([]);
+    expect(await target.listPlans()).toEqual([]);
+    expect(await target.getSettings()).toEqual({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
+  });
+
   it('合并：同一条训练不重复、档位取高、打卡取并集', async () => {
     const target = new MemoryRepository();
     await target.saveSession(rec('schulte', 100), state('schulte', 2), plan('2026-10-18', []));
@@ -202,6 +221,22 @@ describe('备份解析校验', () => {
   it('训练记录缺 id 被拒绝', () => {
     const session: Record<string, unknown> = { ...rec('schulte', 100), id: undefined };
     expect(() => parseBackup(rawBackup({ sessions: [session] }))).toThrow('训练记录');
+  });
+
+  it('非有限数字被拒绝：exportedAt 与训练记录 id 为 Infinity', () => {
+    const badExport = rawBackup().replace('"exportedAt":0', '"exportedAt":1e999');
+    expect(JSON.parse(badExport).exportedAt).toBe(Infinity);
+    expect(() => parseBackup(badExport)).toThrow('exportedAt');
+
+    const badId = rawBackup({ sessions: [{ ...rec('schulte', 100), id: 1 }] }).replace('"id":1', '"id":1e999');
+    expect(JSON.parse(badId).sessions[0].id).toBe(Infinity);
+    expect(() => parseBackup(badId)).toThrow('训练记录');
+  });
+
+  it('数组字段不是数组时错误信息同时含中文名与英文键', () => {
+    expect(() => parseBackup(rawBackup({ sessions: {} }))).toThrow('训练记录（sessions）');
+    expect(() => parseBackup(rawBackup({ gameStates: {} }))).toThrow('档位记录（gameStates）');
+    expect(() => parseBackup(rawBackup({ plans: {} }))).toThrow('计划记录（plans）');
   });
 
   it('非法 gameId 被拒绝', () => {

@@ -124,6 +124,12 @@ export class MemoryRepository implements Repository {
       if (ids.has(s.id)) throw new TypeError(`loadAll 的 session id 重复：${s.id}`);
       ids.add(s.id);
     }
+    for (const g of data.gameStates) {
+      if (typeof g.gameId !== 'string') throw new TypeError('loadAll 的 gameState 缺 gameId');
+    }
+    for (const p of data.plans) {
+      if (typeof p.dayKey !== 'string') throw new TypeError('loadAll 的 plan 缺 dayKey');
+    }
     // 先全部校验再落库：内存实现没有事务回滚，半份数据比抛错更难查。
     this.sessions = data.sessions.map((s) => structuredClone(s));
     this.states = new Map(data.gameStates.map((g) => [g.gameId, structuredClone(g)]));
@@ -143,6 +149,17 @@ export class MemoryRepository implements Repository {
 const DB_VERSION = 1;
 const SETTINGS_KEY = 'settings';
 const ALL_STORES = ['sessions', 'gameState', 'plans', 'settings'];
+
+type SettingsRow = Partial<Settings> & { key: string };
+
+function settingsFromRow(row: Partial<Settings> | undefined): Settings {
+  return {
+    dayStartHour: row?.dayStartHour ?? DEFAULT_SETTINGS.dayStartHour,
+    theme: row?.theme ?? DEFAULT_SETTINGS.theme,
+    hapticsEnabled: row?.hapticsEnabled ?? DEFAULT_SETTINGS.hapticsEnabled,
+    soundEnabled: row?.soundEnabled ?? DEFAULT_SETTINGS.soundEnabled,
+  };
+}
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -233,13 +250,8 @@ class IdbRepository implements Repository {
   }
 
   async getSettings(): Promise<Settings> {
-    const row = await req<(Partial<Settings> & { key: string }) | undefined>(this.store('settings').get(SETTINGS_KEY));
-    return {
-      dayStartHour: row?.dayStartHour ?? DEFAULT_SETTINGS.dayStartHour,
-      theme: row?.theme ?? DEFAULT_SETTINGS.theme,
-      hapticsEnabled: row?.hapticsEnabled ?? DEFAULT_SETTINGS.hapticsEnabled,
-      soundEnabled: row?.soundEnabled ?? DEFAULT_SETTINGS.soundEnabled,
-    };
+    const row = await req<SettingsRow | undefined>(this.store('settings').get(SETTINGS_KEY));
+    return settingsFromRow(row);
   }
 
   async putSettings(settings: Settings): Promise<void> {
@@ -250,13 +262,26 @@ class IdbRepository implements Repository {
   }
 
   async dumpAll(): Promise<RepoDump> {
-    const [sessions, gameStates, plans, settings] = await Promise.all([
-      this.listSessions(),
-      this.listGameStates(),
-      this.listPlans(),
-      this.getSettings(),
+    // 四类数据必须在同一个只读事务里取，导出才是同一时刻的一致快照。
+    const tx = this.db.transaction(ALL_STORES, 'readonly');
+    const done = txDone(tx);
+    const sessionsReq = req<SessionRecord[]>(tx.objectStore('sessions').getAll());
+    const statesReq = req<GameState[]>(tx.objectStore('gameState').getAll());
+    const plansReq = req<DayPlan[]>(tx.objectStore('plans').getAll());
+    const settingsReq = req<SettingsRow | undefined>(tx.objectStore('settings').get(SETTINGS_KEY));
+    const [sessions, gameStates, plans, row] = await Promise.all([
+      sessionsReq,
+      statesReq,
+      plansReq,
+      settingsReq,
+      done,
     ]);
-    return { sessions, gameStates, plans, settings };
+    return {
+      sessions: sessions.sort(byStartedAt),
+      gameStates,
+      plans,
+      settings: settingsFromRow(row),
+    };
   }
 
   async loadAll(data: RepoDump): Promise<void> {

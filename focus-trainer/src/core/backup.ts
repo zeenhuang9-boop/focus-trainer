@@ -50,12 +50,12 @@ const SESSION_NUMBER_FIELDS = ['startedAt', 'durationMs', 'startLevel', 'endLeve
 
 function checkSession(value: unknown): SessionRecord {
   const s = asObject(value, '训练记录');
-  if (typeof s.id !== 'number') throw new Error('备份里的训练记录不完整（缺 id）');
+  if (!Number.isFinite(s.id)) throw new Error('备份里的训练记录不完整（id 非法）');
   if (!isGameId(s.gameId)) throw new Error('备份里的训练记录不完整（gameId 非法）');
   if (s.mode !== 'plan' && s.mode !== 'free') throw new Error('备份里的训练记录不完整（mode 非法）');
   if (typeof s.dayKey !== 'string') throw new Error('备份里的训练记录不完整（dayKey 非法）');
   for (const key of SESSION_NUMBER_FIELDS) {
-    if (typeof s[key] !== 'number') throw new Error(`备份里的训练记录不完整（${key} 非法）`);
+    if (!Number.isFinite(s[key])) throw new Error(`备份里的训练记录不完整（${key} 非法）`);
   }
   if (!Array.isArray(s.rounds)) throw new Error('备份里的训练记录不完整（rounds 非法）');
   if (!isRecord(s.summary)) throw new Error('备份里的训练记录不完整（summary 非法）');
@@ -66,7 +66,7 @@ function checkGameState(value: unknown): GameState {
   const g = asObject(value, '档位记录');
   if (!isGameId(g.gameId)) throw new Error('备份里的档位记录不完整（gameId 非法）');
   for (const key of ['level', 'passStreak', 'failStreak'] as const) {
-    if (typeof g[key] !== 'number') throw new Error(`备份里的档位记录不完整（${key} 非法）`);
+    if (!Number.isFinite(g[key])) throw new Error(`备份里的档位记录不完整（${key} 非法）`);
   }
   if (g.lastPlayedDayKey !== null && typeof g.lastPlayedDayKey !== 'string') {
     throw new Error('备份里的档位记录不完整（lastPlayedDayKey 非法）');
@@ -84,7 +84,8 @@ function checkPlan(value: unknown): DayPlan {
 
 function checkSettings(value: unknown): Settings {
   const s = asObject(value, '设置');
-  if (typeof s.dayStartHour !== 'number') throw new Error('备份里缺少设置');
+  if (!Number.isFinite(s.dayStartHour)) throw new Error('备份里的设置不完整（dayStartHour 非法）');
+  const dayStartHour = s.dayStartHour as number;
   if (s.theme !== undefined && !THEMES.includes(s.theme as ThemeMode)) {
     throw new Error('备份里的设置 theme 非法');
   }
@@ -96,7 +97,7 @@ function checkSettings(value: unknown): Settings {
   }
   // 旧备份可能只有 dayStartHour：已出现的字段必须类型正确，缺的按默认值回填。
   return {
-    dayStartHour: s.dayStartHour,
+    dayStartHour,
     theme: (s.theme as ThemeMode | undefined) ?? DEFAULT_SETTINGS.theme,
     hapticsEnabled: (s.hapticsEnabled as boolean | undefined) ?? DEFAULT_SETTINGS.hapticsEnabled,
     soundEnabled: (s.soundEnabled as boolean | undefined) ?? DEFAULT_SETTINGS.soundEnabled,
@@ -116,17 +117,21 @@ export function parseBackup(text: string): BackupData {
     throw new Error('不是本应用的备份（缺少 format/app 标记）');
   }
   if (o.version !== BACKUP_VERSION) throw new Error(`备份版本不支持：${String(o.version)}`);
+  // 旧备份没有 exportedAt 时填 0；出现了就必须是有限数字，Infinity/NaN 一律拒绝。
+  if (o.exportedAt !== undefined && !Number.isFinite(o.exportedAt)) {
+    throw new Error('备份格式错误：exportedAt 不是有限数字');
+  }
 
-  const sessions = asArray(o.sessions, 'sessions').map(checkSession);
-  const gameStates = asArray(o.gameStates, 'gameStates').map(checkGameState);
-  const plans = asArray(o.plans, 'plans').map(checkPlan);
+  const sessions = asArray(o.sessions, '训练记录（sessions）').map(checkSession);
+  const gameStates = asArray(o.gameStates, '档位记录（gameStates）').map(checkGameState);
+  const plans = asArray(o.plans, '计划记录（plans）').map(checkPlan);
   const settings = checkSettings(o.settings);
 
   return {
     format: BACKUP_FORMAT,
     app: BACKUP_APP,
     version: BACKUP_VERSION,
-    exportedAt: typeof o.exportedAt === 'number' ? o.exportedAt : 0,
+    exportedAt: (o.exportedAt as number | undefined) ?? 0,
     sessions,
     gameStates,
     plans,

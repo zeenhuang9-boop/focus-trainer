@@ -162,7 +162,7 @@ function setup(opts: { levels?: Array<[GameId, number]> } = {}) {
       { dayKey: TODAY, games: GAMES.map((g) => g.id), completed: [] },
     );
   }
-  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4 } };
+  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false } };
   const ac = new AbortController();
   const hashSet: string[] = [];
   let hashValue = '#/';

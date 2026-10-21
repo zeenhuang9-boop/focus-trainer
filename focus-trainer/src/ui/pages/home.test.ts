@@ -162,7 +162,7 @@ function setup(opts: { plan?: DayPlan; completedDays?: string[] } = {}) {
       { dayKey: day, games: ['schulte', 'stroop', 'seqmem'], completed: ['schulte', 'stroop', 'seqmem'] },
     );
   }
-  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4 } };
+  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false } };
   const ac = new AbortController();
   const hashSet: string[] = [];
   let hashValue = '#/';

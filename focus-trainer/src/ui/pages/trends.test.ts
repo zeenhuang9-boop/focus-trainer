@@ -137,7 +137,7 @@ function makeRepo(sessions: SessionRecord[], plans: DayPlan[], states: GameState
       calls.push('listGameStates');
       return states;
     },
-    getSettings: async () => ({ dayStartHour: 4 }),
+    getSettings: async () => ({ dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false }),
     getGameState: async () => {
       calls.push('getGameState');
       return states[0] ?? defaultGameState('schulte');
@@ -165,7 +165,7 @@ function makeRepo(sessions: SessionRecord[], plans: DayPlan[], states: GameState
 function setup(sessions: SessionRecord[] = [], plans: DayPlan[] = [], states: GameState[] = []) {
   const view = new StubEl('main');
   const { repo, calls } = makeRepo(sessions, plans, states);
-  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4 } };
+  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false } };
   const ac = new AbortController();
   vi.stubGlobal('document', {
     createElement: (tag: string) => new StubEl(tag),

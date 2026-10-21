@@ -1,7 +1,7 @@
 import { INITIAL_ADAPTIVE } from './adaptive';
 import type { DayPlan, GameId, GameState, SessionRecord, Settings } from './types';
 
-export const DEFAULT_SETTINGS: Settings = { dayStartHour: 4 };
+export const DEFAULT_SETTINGS: Settings = { dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false };
 
 export function defaultGameState(gameId: GameId): GameState {
   return { gameId, ...INITIAL_ADAPTIVE, lastPlayedDayKey: null };
@@ -200,8 +200,13 @@ class IdbRepository implements Repository {
   }
 
   async getSettings(): Promise<Settings> {
-    const row = await req<(Settings & { key: string }) | undefined>(this.store('settings').get(SETTINGS_KEY));
-    return row ? { dayStartHour: row.dayStartHour } : { ...DEFAULT_SETTINGS };
+    const row = await req<(Partial<Settings> & { key: string }) | undefined>(this.store('settings').get(SETTINGS_KEY));
+    return {
+      dayStartHour: row?.dayStartHour ?? DEFAULT_SETTINGS.dayStartHour,
+      theme: row?.theme ?? DEFAULT_SETTINGS.theme,
+      hapticsEnabled: row?.hapticsEnabled ?? DEFAULT_SETTINGS.hapticsEnabled,
+      soundEnabled: row?.soundEnabled ?? DEFAULT_SETTINGS.soundEnabled,
+    };
   }
 
   async putSettings(settings: Settings): Promise<void> {

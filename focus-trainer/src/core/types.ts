@@ -105,6 +105,11 @@ export interface DayPlan {
   completed: GameId[];
 }
 
+export type ThemeMode = 'auto' | 'light' | 'dark';
+
 export interface Settings {
   dayStartHour: number;
+  theme: ThemeMode;
+  hapticsEnabled: boolean;
+  soundEnabled: boolean;
 }

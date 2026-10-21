@@ -131,7 +131,7 @@ const EPOCH_DAY = '2026-10-19';
 function setup() {
   const view = new StubEl('main');
   const repo = new MemoryRepository();
-  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4 } };
+  const ctx: AppContext = { repo, storageOk: true, settings: { dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false } };
   const ac = new AbortController();
 
   // 假时钟：帧时间戳与事件时间戳都从它取，基准抹掉小数部分，期望值不用跟浮点误差较真。

@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MemoryRepository, defaultGameState, openIdbRepository, type Repository } from './storage';
+import { DEFAULT_SETTINGS, MemoryRepository, defaultGameState, openIdbRepository, type Repository } from './storage';
 import type { DayPlan, GameId, GameState, SessionRecord } from './types';
 
 let dbSeq = 0;
@@ -85,9 +85,9 @@ describe.each(impls)('$name repository', ({ make }) => {
   });
 
   it('设置有默认值并能往返', async () => {
-    expect(await repo.getSettings()).toEqual({ dayStartHour: 4 });
-    await repo.putSettings({ dayStartHour: 2 });
-    expect(await repo.getSettings()).toEqual({ dayStartHour: 2 });
+    expect(await repo.getSettings()).toEqual(DEFAULT_SETTINGS);
+    await repo.putSettings({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
+    expect(await repo.getSettings()).toEqual({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
   });
 
   it('计划能往返，listPlans 按日期升序', async () => {
@@ -138,12 +138,12 @@ describe.each(impls)('$name repository', ({ make }) => {
 
   it('clearAll 清空全部数据', async () => {
     await repo.saveSession(rec('schulte', 100), state('schulte', 3), dayPlan('2026-10-18'));
-    await repo.putSettings({ dayStartHour: 0 });
+    await repo.putSettings({ ...DEFAULT_SETTINGS, dayStartHour: 0 });
     await repo.clearAll();
     expect(await repo.listSessions()).toEqual([]);
     expect(await repo.listGameStates()).toEqual([]);
     expect(await repo.listPlans()).toEqual([]);
-    expect(await repo.getSettings()).toEqual({ dayStartHour: 4 });
+    expect(await repo.getSettings()).toEqual(DEFAULT_SETTINGS);
   });
 });
 

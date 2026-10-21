@@ -428,7 +428,7 @@ describe('boot() 的存储失败分支（spec §6 第一条）', () => {
     expect(entry.ctx.storageOk).toBe(false);
     expect(entry.ctx.repo).toBeInstanceOf(storage.MemoryRepository);
     // settings 也是从这个内存仓库读出来的（main.ts:43）
-    expect(entry.ctx.settings).toEqual({ dayStartHour: 4 });
+    expect(entry.ctx.settings).toEqual({ dayStartHour: 4, theme: 'auto', hapticsEnabled: true, soundEnabled: false });
     // 交给页面的容器就是 #view 那个节点
     expect(entry.view).toBe(h.view);
     expect(h.persist).toHaveBeenCalledTimes(2);

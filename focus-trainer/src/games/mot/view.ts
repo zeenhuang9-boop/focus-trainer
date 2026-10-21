@@ -61,11 +61,14 @@ export function createMotView(host: HTMLElement, emit: (e: InputEvent) => void, 
       if (field.className !== phaseClass) field.className = phaseClass;
       s.dots.forEach((d, i) => {
         const el = dots[i];
-        // class 逐次重算：换轮/换相位复用节点时不能残留上一轮的 hit/wrong/missed/sel/target
+        // class 逐次重算：换轮/换相位复用节点时不能残留上一轮的 hit/wrong/missed/sel/target。
+        // is-pressed 不在快照里，是 press 驻留（90ms）直接挂到节点上的；每帧重写 className
+        // 会把它抹掉，所以重算时显式保留。其余旧标记仍按快照清掉。
         const cls = ['mot-dot'];
         if (d.target) cls.push('target');
         if (d.selected) cls.push('sel');
         if (d.mark !== 'none') cls.push(d.mark);
+        if (el.classList.contains('is-pressed')) cls.push('is-pressed');
         el.className = cls.join(' ');
         el.style.transform = `translate3d(${d.x * side}px, ${d.y * side}px, 0)`;
       });

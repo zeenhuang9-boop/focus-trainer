@@ -7,8 +7,10 @@ const HOURS = [0, 1, 2, 3, 4, 5, 6];
 
 async function save(ctx: AppContext, patch: Partial<Settings>, note: HTMLElement, text: string): Promise<void> {
   const settings: Settings = { ...ctx.settings, ...patch };
-  await ctx.repo.putSettings(settings);
+  // 先同步落到内存再 await：连续快速改两个开关时，后一次 save 必须看到前一次已合并的
+  // ctx.settings，否则两次各基于旧值展开，后写覆盖前写。
   ctx.settings = settings;
+  await ctx.repo.putSettings(settings);
   note.textContent = text;
 }
 

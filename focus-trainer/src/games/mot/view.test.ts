@@ -32,6 +32,13 @@ class StubEl {
     return [...this.classes].join(' ');
   }
 
+  // 与真实 DOM 一致：classList 与 className 读写同一份 class 集合。
+  readonly classList = {
+    add: (c: string): void => void this.classes.add(c),
+    remove: (c: string): void => void this.classes.delete(c),
+    contains: (c: string): boolean => this.classes.has(c),
+  };
+
   append(...els: StubEl[]): void {
     for (const e of els) {
       e.parent = this;
@@ -170,6 +177,20 @@ describe('createMotView', () => {
     expect(field.children[1].classes.has('wrong')).toBe(true);
     expect(field.children[1].classes.has('target')).toBe(false);
     expect(field.children[2].classes.has('missed')).toBe(true);
+  });
+
+  it('逐帧重算 class 保留按压态，但上一轮的 mark 仍会清掉', () => {
+    // play.ts 每帧 render，press 驻留加的 is-pressed 必须活过下一帧；而 hit/wrong 等
+    // 快照标记该随快照消失，保留逻辑不能把旧状态一起留住。
+    const { field, view } = mount(
+      snap({ phase: 'feedback', dots: [vd({ mark: 'hit' }), vd({ id: 1 }), vd({ id: 2 })] }),
+    );
+    const dot = field.children[0];
+    expect(dot.classList.contains('hit')).toBe(true);
+    dot.classList.add('is-pressed');
+    view.render(snap({ phase: 'motion', dots: [vd({ id: 0 }), vd({ id: 1 }), vd({ id: 2 })] }));
+    expect(dot.classList.contains('is-pressed')).toBe(true);
+    expect(dot.classList.contains('hit')).toBe(false);
   });
 
   it('相位 class 写在 field 上，供 CSS 决定运动期不闪烁', () => {

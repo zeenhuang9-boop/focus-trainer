@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, MemoryRepository, defaultGameState, openIdbRepository, type Repository } from './storage';
-import type { DayPlan, GameId, GameState, SessionRecord } from './types';
+import type { DayPlan, GameId, GameState, SessionRecord, Settings } from './types';
 
 let dbSeq = 0;
 const uniqueDbName = () => `focus-trainer-test-${++dbSeq}`;
@@ -90,6 +90,12 @@ describe.each(impls)('$name repository', ({ make }) => {
     expect(await repo.getSettings()).toEqual({ ...DEFAULT_SETTINGS, dayStartHour: 2 });
   });
 
+  it('非默认设置四个字段全等往返', async () => {
+    const settings: Settings = { dayStartHour: 2, theme: 'dark', hapticsEnabled: false, soundEnabled: true };
+    await repo.putSettings(settings);
+    expect(await repo.getSettings()).toEqual(settings);
+  });
+
   it('计划能往返，listPlans 按日期升序', async () => {
     expect(await repo.getPlan('2026-10-18')).toBeNull();
     await repo.putPlan(dayPlan('2026-10-18'));
@@ -148,6 +154,37 @@ describe.each(impls)('$name repository', ({ make }) => {
 });
 
 describe('openIdbRepository', () => {
+  // 模拟旧版本只写过一部分字段的库：绕过 Repository，直接往 settings store 塞半截行。
+  function putRawSettingsRow(name: string, row: Record<string, unknown>): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open(name);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction('settings', 'readwrite');
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+        tx.objectStore('settings').put(row);
+      };
+    });
+  }
+
+  it('旧库半截设置行：缺的字段按默认值补齐', async () => {
+    const name = uniqueDbName();
+    await openIdbRepository(name); // 先建库与 settings store
+    await putRawSettingsRow(name, { key: 'settings', dayStartHour: 2 });
+    const repo = await openIdbRepository(name);
+    expect(await repo.getSettings()).toEqual({
+      dayStartHour: 2,
+      theme: 'auto',
+      hapticsEnabled: true,
+      soundEnabled: false,
+    });
+  });
+
   it('同一事务：计划写入失败时 session 和 gameState 都不落库', async () => {
     const repo = await openIdbRepository(uniqueDbName());
     // 带函数值的记录能过 assertWriteKeys，但 IndexedDB 结构化克隆会同步抛 DataError，

@@ -19,7 +19,7 @@ class StubEl {
   checked = false;
   selected = false;
   value = '';
-  files: Array<{ text(): Promise<string> }> | null = null;
+  files: Array<{ text?: () => Promise<string> }> | null = null;
   text = '';
   private readonly handlers: Array<{ type: string; fn: (ev: never) => void }> = [];
 
@@ -321,7 +321,7 @@ describe('renderSettings 的备份区', () => {
     expect(h.backupNote().textContent).toContain('导入完成');
   });
 
-  it('坏 JSON：合并导入提示导入失败，仓库不变', async () => {
+  it('坏 JSON：合并导入不弹确认，提示导入失败，仓库不变', async () => {
     const h = await setup();
     await h.render();
     h.pasteText().value = '{这不是 JSON';
@@ -329,9 +329,12 @@ describe('renderSettings 的备份区', () => {
     h.setConfirm(true);
     h.button('合并导入').fire('click');
 
+    // 解析失败必须发生在 confirm 之前：坏数据不该让用户看到合并确认框。
+    expect(h.confirmMock).not.toHaveBeenCalled();
     await vi.waitFor(() => {
       expect(h.backupNote().textContent).toContain('导入失败');
     });
+    expect(h.confirmMock).not.toHaveBeenCalled();
     expect(await h.repo.listSessions()).toEqual([]);
     expect(await h.repo.getSettings()).toEqual(BASE);
   });
@@ -343,14 +346,114 @@ describe('renderSettings 的备份区', () => {
       await repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
     });
 
-    h.fileInput().files = [{ text: async () => json }];
-    h.fileInput().fire('change');
+    const input = h.fileInput();
+    input.value = 'C:\\fake\\backup.json';
+    input.files = [{ text: async () => json }];
+    input.fire('change');
 
     await vi.waitFor(() => {
       expect(h.pasteText().value).toBe(json);
+      expect(input.value).toBe('');
     });
     expect(h.backupNote().textContent).toBe('已读取文件，请选择合并导入或覆盖导入。');
     expect(await h.repo.listSessions()).toEqual([]);
+  });
+
+  it('读取文件失败：提示读取失败且文件框被复位', async () => {
+    const h = await setup();
+    await h.render();
+    const input = h.fileInput();
+    input.value = 'C:\\fake\\backup.json';
+    input.files = [{ text: () => Promise.reject(new Error('文件损坏')) }];
+
+    input.fire('change');
+
+    await vi.waitFor(() => {
+      expect(h.backupNote().textContent).toContain('读取文件失败');
+      expect(input.value).toBe('');
+    });
+    expect(h.backupNote().textContent).toContain('文件损坏');
+    expect(h.pasteText().value).toBe('');
+  });
+
+  it('旧 WebView 没有 File.text() 时退回 FileReader 读取', async () => {
+    const h = await setup();
+    await h.render();
+    const json = await backupJson(async (repo) => {
+      await repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
+    });
+    class StubFileReader {
+      result: string | ArrayBuffer | null = null;
+      error: Error | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsText(): void {
+        this.result = json;
+        this.onload?.();
+      }
+    }
+    vi.stubGlobal('FileReader', StubFileReader);
+
+    const input = h.fileInput();
+    input.value = 'C:\\fake\\backup.json';
+    input.files = [{}];
+    input.fire('change');
+
+    await vi.waitFor(() => {
+      expect(h.pasteText().value).toBe(json);
+      expect(input.value).toBe('');
+    });
+    expect(h.backupNote().textContent).toBe('已读取文件，请选择合并导入或覆盖导入。');
+  });
+
+  it('导入成功后清空粘贴框', async () => {
+    const h = await setup();
+    await h.render();
+    h.pasteText().value = await backupJson(async (repo) => {
+      await repo.saveSession(session('schulte', 100), gameState('schulte', 3), null);
+    });
+
+    h.setConfirm(true);
+    h.button('合并导入').fire('click');
+
+    await vi.waitFor(() => {
+      expect(h.backupNote().textContent).toContain('导入完成');
+    });
+    expect(h.pasteText().value).toBe('');
+  });
+
+  it('导出成功：剪贴板写入后提示已复制，只读框里是备份 JSON', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const h = await setup();
+    await h.render();
+
+    h.button('导出备份').fire('click');
+
+    await vi.waitFor(() => {
+      expect(h.backupNote().textContent).toContain('已复制');
+    });
+    const json = h.backupText().value;
+    expect(json).toContain('"format"');
+    expect(writeText).toHaveBeenCalledWith(json);
+  });
+
+  it('导出失败：读取仓库抛错时提示导出失败且不写剪贴板', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const h = await setup();
+    h.repo.dumpAll = async () => {
+      throw new Error('数据库读取失败');
+    };
+    await h.render();
+
+    h.button('导出备份').fire('click');
+
+    await vi.waitFor(() => {
+      expect(h.backupNote().textContent).toContain('导出失败');
+    });
+    expect(h.backupNote().textContent).toContain('数据库读取失败');
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it('覆盖导入按钮带 danger 类；剪贴板不可用时导出只提示长按复制', async () => {

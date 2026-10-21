@@ -1,6 +1,6 @@
 import type { Settings, ThemeMode } from '../../core/types';
 import type { AppContext } from '../context';
-import { createBackup, importBackup, parseBackup } from '../../core/backup';
+import { createBackup, importBackup, parseBackup, type BackupData } from '../../core/backup';
 import { h } from '../dom';
 import { navigate } from '../router';
 import { applyTheme } from '../theme';
@@ -11,6 +11,19 @@ const THEMES: ReadonlyArray<readonly [ThemeMode, string]> = [
   ['light', '浅色'],
   ['dark', '深色'],
 ];
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** 老 Android WebView 可能没有 File.text()：优先标准 API，缺失时退回 FileReader（同步异常也会变成 rejection）。 */
+function readFileText(file: File): Promise<string> {
+  if (typeof file.text === 'function') return file.text();
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error ?? new Error('无法读取文件'));
+    reader.readAsText(file);
+  });
+}
 
 async function save(ctx: AppContext, patch: Partial<Settings>, note: HTMLElement, text: string): Promise<void> {
   const settings: Settings = { ...ctx.settings, ...patch };
@@ -85,8 +98,15 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
   }
 
   async function doExport(): Promise<void> {
-    const text = JSON.stringify(await createBackup(ctx.repo, Date.now()), null, 2);
-    backupText.value = text;
+    let text: string;
+    try {
+      text = JSON.stringify(await createBackup(ctx.repo, Date.now()), null, 2);
+      backupText.value = text;
+    } catch (err) {
+      // 读取仓库/序列化失败：只报错，绝不能再碰剪贴板，否则会让人以为导出成功。
+      backupNote.textContent = `导出失败：${errorText(err)}`;
+      return;
+    }
     try {
       // WebView / README 环境里 navigator.clipboard 可能整个不存在：不存在也算失败，
       // 必须走「长按手动复制」的兜底提示，不能误报已复制。
@@ -104,13 +124,20 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
       backupNote.textContent = '没有可导入的内容。';
       return;
     }
+    let data: BackupData;
+    try {
+      // 先校验再确认：坏 JSON 不该弹出合并/覆盖确认框。
+      data = parseBackup(text);
+    } catch (err) {
+      backupNote.textContent = `导入失败：${errorText(err)}`;
+      return;
+    }
     const question =
       mode === 'overwrite'
         ? '覆盖导入会用备份整体替换本机全部训练记录、档位、计划和设置，且不能撤销。继续？'
         : '导入会合并到现有记录，继续？';
     if (!confirm(question)) return;
     try {
-      const data = parseBackup(text);
       const summary =
         mode === 'overwrite'
           ? await importBackup(ctx.repo, data, 'overwrite')
@@ -124,26 +151,26 @@ export async function renderSettings(view: HTMLElement, ctx: AppContext, signal:
           ? `覆盖导入完成：${summary.addedSessions} 次训练、${summary.mergedStates} 条档位、${summary.mergedPlans} 天计划已替换本机数据。`
           : `导入完成：新增 ${summary.addedSessions} 次训练，合并 ${summary.mergedStates} 条档位、${summary.mergedPlans} 天计划。`;
     } catch (err) {
-      backupNote.textContent = `导入失败：${err instanceof Error ? err.message : String(err)}`;
+      backupNote.textContent = `导入失败：${errorText(err)}`;
     }
   }
 
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
     if (!file) return;
-    void file
-      .text()
-      .then((text) => {
+    void (async () => {
+      try {
+        const text = await readFileText(file);
         // 只填进粘贴框；真正导入必须由用户再点「合并导入」或「覆盖导入」并确认。
         pasteText.value = text;
         backupNote.textContent = '已读取文件，请选择合并导入或覆盖导入。';
-      })
-      .catch((err) => {
-        backupNote.textContent = `读取文件失败：${err instanceof Error ? err.message : String(err)}`;
-      })
-      .finally(() => {
+      } catch (err) {
+        backupNote.textContent = `读取文件失败：${errorText(err)}`;
+      } finally {
+        // 含旧 WebView 缺 File.text() 的同步异常在内，任何路径都要复位，才能再次选同一个文件。
         fileInput.value = '';
-      });
+      }
+    })();
   });
 
   const exportBtn = h('button', { onclick: () => void doExport() }, '导出备份');

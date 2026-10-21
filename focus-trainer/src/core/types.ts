@@ -36,6 +36,12 @@ export interface GameEngine<S = unknown> {
   result(): RoundResult;
 }
 
+export interface Fx {
+  tap(): void;
+  hit(): void;
+  miss(): void;
+}
+
 export interface GameView<S = unknown> {
   render(snapshot: S): void;
   destroy(): void;
